@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>بررسی نصب ستاره</title>
+<style>
+  body { font-family: Tahoma, Arial, sans-serif; background:#fbf1ef; color:#222; margin:0; padding:16px; }
+  h1 { color:#7d2519; font-size:18px; }
+  .row { background:#fff; border-radius:10px; padding:10px 12px; margin:8px 0; display:flex; justify-content:space-between; gap:8px; }
+  .ok { color:#15803d; font-weight:700; }
+  .bad { color:#b42318; font-weight:700; }
+  .info { font-size:12px; color:#555; word-break:break-all; }
+  button { width:100%; padding:12px; border:0; border-radius:10px; background:#7d2519; color:#fff; font-size:16px; margin-top:12px; }
+</style>
+</head>
+<body>
+<h1>بررسی نصب انبار ستاره</h1>
+<div id="out">در حال بررسی...</div>
+<button id="installBtn" style="display:none" onclick="doInstall()">نصب روی صفحه اصلی</button>
+<script>
+let deferred = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault(); deferred = e;
+  document.getElementById('installBtn').style.display = 'block';
+  add('نصب خودکار آماده است (beforeinstallprompt)', true, '');
+});
+function doInstall() {
+  if (!deferred) return;
+  deferred.prompt();
+  deferred.userChoice.then(() => { deferred = null; });
+}
+const results = [];
+function add(label, ok, info) {
+  results.push(`<div class="row"><span>${label}</span><span class="${ok ? 'ok' : 'bad'}">${ok ? 'درست' : 'مشکل'}</span></div>` + (info ? `<div class="info">${info}</div>` : ''));
+  document.getElementById('out').innerHTML = results.join('');
+}
+async function run() {
+  add('آدرس HTTPS است', location.protocol === 'https:', location.href);
+  add('حالت نمایش نصب‌شده (standalone)', matchMedia('(display-mode: standalone)').matches || navigator.standalone === true, 'اگر اپ از صفحه اصلی باز شده باشد، درست است');
+  let manifest = null;
+  try {
+    const r = await fetch('./manifest.json', { cache: 'no-store' });
+    manifest = await r.json();
+    add('manifest.json بارگذاری شد', r.ok, 'name: ' + (manifest.name || '—') + ' | start_url: ' + manifest.start_url);
+    add('نام برنامه در manifest', !!manifest.name && !!manifest.short_name, manifest.name + ' / ' + manifest.short_name);
+    add('حالت display', manifest.display === 'standalone' || manifest.display === 'fullscreen' || manifest.display === 'minimal-ui', 'display: ' + manifest.display);
+    const sizes = (manifest.icons || []).map(i => i.sizes);
+    add('آیکون 192 و 512 در manifest', sizes.includes('192x192') && sizes.includes('512x512'), 'sizes: ' + sizes.join(', '));
+    for (const ic of (manifest.icons || [])) {
+      const ok = await new Promise(res => { const im = new Image(); im.onload = () => res(true); im.onerror = () => res(false); im.src = ic.src; });
+      add('فایل آیکون ' + ic.src + ' باز می‌شود', ok, '');
+    }
+  } catch (e) { add('manifest.json بارگذاری شد', false, String(e)); }
+  if ('serviceWorker' in navigator) {
+    const reg = await navigator.serviceWorker.getRegistration();
+    add('سرویس آفلاین ثبت شده', !!reg, reg ? ('scope: ' + reg.scope) : 'ثبت نشده');
+    add('سرویس آفلاین فعال است', !!(reg && reg.active), reg && reg.active ? reg.active.scriptURL : '');
+    add('صفحه توسط سرویس آفلاین کنترل می‌شود', !!navigator.serviceWorker.controller, 'اگر مشکل است، صفحه را یک بار Refresh کنید');
+  } else {
+    add('مرورگر از سرویس آفلاین پشتیبانی می‌کند', false, '');
+  }
+  setTimeout(() => {
+    if (!deferred) add('پیشنهاد نصب از مرورگر آمده', false, 'اگر این مورد مشکل است، از منوی سه نقطه Chrome گزینه Install app یا Add to Home screen را بزنید');
+  }, 2500);
+}
+run();
+</script>
+</body>
+</html>
