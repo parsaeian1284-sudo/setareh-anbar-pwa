@@ -261,6 +261,14 @@
 
   <div class="main" id="main">
     <!-- ========== TAB: موجودی ========== -->
+    <div id="backupBanner" style="display:none;background:#fff7e6;border:1px solid #f5c518;border-radius:10px;padding:10px;margin:10px 12px;font-size:13px">
+      <div>وقت پشتیبان هفتگی است. اطلاعات فقط روی همین گوشی ذخیره می‌شود.</div>
+      <div style="display:flex;gap:8px;margin-top:8px"><button class="btn btn-primary btn-sm" onclick="backupJSON()">پشتیبان بگیر</button><button class="btn btn-outline btn-sm" onclick="hideBackupBanner()">بعداً</button></div>
+    </div>
+    <div style="margin:10px 12px;background:#fff;border-radius:10px;padding:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)">
+      <div style="display:flex;gap:6px"><input id="uniSearch" placeholder="جستجو: کالا، کد، سایز، مشتری، شماره حواله، همکار" oninput="runUniSearch()" style="flex:1" /><button type="button" class="btn btn-outline btn-sm" onclick="voiceInput('uniSearch', runUniSearch)">🎤</button></div>
+      <div id="uniResults" style="margin-top:8px"></div>
+    </div>
     <div class="tab-content active" id="tab-inventory">
       <div class="card">
         <h3>ورود فایل Base</h3>
@@ -311,6 +319,7 @@
           <div><label>جایگاه</label><input id="mLoc" /></div>
           <div><label>توضیحات / برند</label><input id="mDesc" /></div>
         </div>
+        <div><label>عکس کالا (اختیاری)</label><input id="mPhoto" type="file" accept="image/*" capture="environment" /></div>
         <button class="btn btn-primary btn-block" onclick="addManualItem()">افزودن کالا</button>
       </div>
       <div class="card">
@@ -344,7 +353,7 @@
       <div class="card">
         <h3>حواله خروجی جدید</h3>
         <div class="row">
-          <div><label>شماره حواله *</label><input id="wbNo" placeholder="شماره یکتا" /></div>
+          <div><label>شماره حواله *</label><div style="display:flex;gap:6px"><input id="wbNo" placeholder="شماره یکتا" /><button type="button" class="btn btn-outline btn-sm" onclick="voiceInput('wbNo')">🎤</button></div></div>
           <div>
             <label>تاریخ (شمسی)</label>
             <input id="wbDate" type="date" onchange="updateWbDateLabel()" />
@@ -352,7 +361,7 @@
           </div>
         </div>
         <div class="row">
-          <div><label>نام مشتری *</label><input id="wbCustomer" /></div>
+          <div><label>نام مشتری *</label><div style="display:flex;gap:6px"><input id="wbCustomer" /><button type="button" class="btn btn-outline btn-sm" onclick="voiceInput('wbCustomer')">🎤</button></div></div>
           <div><label>تماس مشتری</label><input id="wbPhone" type="tel" /></div>
         </div>
         <div class="row">
@@ -454,6 +463,8 @@
         <textarea id="setFooter" rows="2" placeholder="مثلاً: بار پس از خروج از انبار به عهده خریدار است."></textarea>
         <label>قالب پیامک به مشتری</label>
         <textarea id="setSms" rows="4"></textarea>
+        <label>آدرس ارسال خودکار به کانال (اختیاری)</label>
+        <input id="setWebhook" placeholder="آدرس Web App از Google Apps Script" />
         <p style="font-size:11px;color:var(--muted)">متغیرها: {customer} {no} {address} {map}</p>
         <h4 style="margin:14px 0 8px;font-size:14px">حداقل موجودی هر سایز (متر)</h4>
         <div id="minStockList"></div>
@@ -513,10 +524,10 @@
       <h3>امضای حواله</h3>
       <p style="font-size:12px;color:var(--muted)" id="sigInfo"></p>
       <div class="sig-label">امضای تحویل‌گیرنده (مشتری)</div>
-      <div class="sig-box"><canvas id="sigCustomer"></canvas></div>
+      <div class="sig-box" onclick="openFullSig('customer')"><canvas id="sigCustomer"></canvas></div>
       <button class="btn btn-outline btn-sm" onclick="clearSig('customer')">پاک کردن</button>
       <div class="sig-label" style="margin-top:12px">امضای مسئول انبار</div>
-      <div class="sig-box"><canvas id="sigWarehouse"></canvas></div>
+      <div class="sig-box" onclick="openFullSig('warehouse')"><canvas id="sigWarehouse"></canvas></div>
       <button class="btn btn-outline btn-sm" onclick="clearSig('warehouse')">پاک کردن</button>
       <div class="row" style="margin-top:14px">
         <button class="btn btn-primary" onclick="saveSignatures()">ثبت امضاها</button>
@@ -772,6 +783,15 @@
       const code = document.getElementById('mCode').value.trim();
       const name = document.getElementById('mName').value.trim();
       if (!code || !name) { toast('کد و نام الزامی است'); return; }
+      const f = document.getElementById('mPhoto')?.files?.[0];
+      if (f) {
+        compressImage(f, 320, 0.6).then(url => finishAddItem(code, name, url)).catch(() => finishAddItem(code, name, null));
+      } else {
+        finishAddItem(code, name, null);
+      }
+    }
+
+    function finishAddItem(code, name, photo) {
       const item = {
         id: uid(),
         code,
@@ -784,10 +804,12 @@
         weightPerCarton: parseFloat(document.getElementById('mWgt').value) || 0,
         location: document.getElementById('mLoc').value.trim(),
         description: document.getElementById('mDesc').value.trim(),
-        brand: getBrand(document.getElementById('mDesc').value)
+        brand: getBrand(document.getElementById('mDesc').value),
+        photo: photo
       };
       state.items.push(item);
       saveState();
+      if (document.getElementById('mPhoto')) document.getElementById('mPhoto').value = '';
       ['mCode','mName','mSize','mGrade','mStock','mM2','mCpp','mPallets','mWgt','mLoc','mDesc'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
       });
@@ -836,7 +858,7 @@
         const palletStr = pallets ? (faNum(pallets, 0) + (remain ? ' + ' + faNum(remain, 0) + ' ک' : '')) : faNum(cartons, 0) + ' ک';
         return '<tr>' +
           '<td>' + esc(i.code) + '</td>' +
-          '<td>' + esc(i.name) + '</td>' +
+          '<td>' + (i.photo ? '<img src="' + i.photo + '" style="width:34px;height:34px;object-fit:cover;border-radius:6px;margin-left:6px;vertical-align:middle" />' : '') + esc(i.name) + '</td>' +
           '<td>' + esc(i.size) + '</td>' +
           '<td>' + esc(i.grade) + '</td>' +
           '<td>' + faNum(i.stockM2) + '</td>' +
@@ -1012,24 +1034,33 @@
       const div = document.getElementById('wbItems');
       const row = document.createElement('div');
       row.className = 'item-row';
-      const opts = state.items
-        .filter(i => i.stockM2 > 0)
-        .map(i => '<option value="' + i.id + '" ' + (i.id === itemId ? 'selected' : '') + '>' +
-          esc(i.code) + ' | ' + esc(i.name) + ' | ' + esc(i.size) + ' | موجودی: ' + faNum(i.stockM2) + '</option>')
-        .join('');
+      refreshItemList();
+      const cur = itemId ? state.items.find(i => i.id === itemId) : null;
       row.innerHTML =
-        '<div style="flex:2"><label>کالا</label><select class="wb-item-select" onchange="updateWbTotals()">' +
-        '<option value="">انتخاب...</option>' + opts + '</select></div>' +
+        '<div style="flex:2"><label>کالا (با نام، کد یا سایز جستجو کنید)</label><input class="wb-item-select" list="wbItemsList" value="' + (cur ? esc(itemLabel(cur)) : '') + '" placeholder="مثلاً آبادیس یا 960905" oninput="updateWbTotals()" /></div>' +
         '<div style="flex:1"><label>تعداد کارتن</label><input type="number" class="wb-item-cartons" min="1" value="' + esc(cartons) + '" oninput="updateWbTotals()" /></div>' +
         '<button class="btn btn-danger btn-sm" onclick="this.parentElement.remove();updateWbTotals()">×</button>';
       div.appendChild(row);
       updateWbTotals();
     }
 
+    function itemLabel(i) { return i.code + ' | ' + i.name + ' | ' + i.size; }
+    function itemIdFromLabel(v) {
+      const t = String(v || '').trim();
+      const it = state.items.find(i => itemLabel(i) === t) || state.items.find(i => i.code === t);
+      return it ? it.id : '';
+    }
+    function refreshItemList() {
+      let dl = document.getElementById('wbItemsList');
+      if (!dl) { dl = document.createElement('datalist'); dl.id = 'wbItemsList'; document.body.appendChild(dl); }
+      dl.innerHTML = state.items.filter(i => i.stockM2 > 0)
+        .map(i => '<option value="' + esc(itemLabel(i)) + '">موجودی: ' + faNum(i.stockM2) + '</option>').join('');
+    }
+
     function updateWbTotals() {
       let totalCartons = 0, totalM2 = 0, totalWgt = 0;
       document.querySelectorAll('#wbItems .item-row').forEach(row => {
-        const id = row.querySelector('.wb-item-select').value;
+        const id = itemIdFromLabel(row.querySelector('.wb-item-select').value);
         const c = parseInt(row.querySelector('.wb-item-cartons').value) || 0;
         const item = state.items.find(i => i.id === id);
         if (item && c > 0) {
@@ -1054,7 +1085,7 @@
       const lines = [];
       let hasError = false;
       document.querySelectorAll('#wbItems .item-row').forEach(row => {
-        const id = row.querySelector('.wb-item-select').value;
+        const id = itemIdFromLabel(row.querySelector('.wb-item-select').value);
         const c = parseInt(row.querySelector('.wb-item-cartons').value) || 0;
         if (!id || c <= 0) return;
         const item = state.items.find(i => i.id === id);
@@ -1091,7 +1122,11 @@
         createdAt: new Date().toISOString()
       };
       state.waybills.unshift(wb);
+      if (wb.colleague) localStorage.setItem('lastColleague', wb.colleague);
       saveState();
+      { let kg = 0, cartons = 0; wb.items.forEach(l => { const it = state.items.find(i => i.id === l.itemId); if (it) { kg += l.cartons * (it.weightPerCarton || 0); cartons += l.cartons; } });
+        toast('وزن کل: ' + faNum(kg) + ' کیلو · ماشین پیشنهادی: ' + vehicleFor(kg));
+        sendToChannel({ type: 'waybill', no: wb.no, date: wb.date, customer: wb.customer, city: wb.city, colleague: wb.colleague, cartons: cartons, weightKg: kg, vehicle: vehicleFor(kg), driver: wb.driverInfo }); }
       // clear form
       document.getElementById('wbNo').value = '';
       document.getElementById('wbCustomer').value = '';
@@ -1160,6 +1195,7 @@
           ' | وزن: ' + faNum(t.totalWgt) + ' کیلو</div>' +
           (wb.photo ? '<img class="photo-thumb" src="' + wb.photo + '" onclick="window.open(this.src)" />' : '') +
           '<div class="row" style="margin-top:8px;gap:4px">' +
+          '<button class="btn btn-outline btn-sm" onclick="editWaybillInfo(\'' + wb.id + '\')">ویرایش</button>' +
           '<button class="btn btn-outline btn-sm" onclick="openSigModal(\'' + wb.id + '\')">امضا</button>' +
           '<button class="btn btn-outline btn-sm" onclick="printReceipt(\'' + wb.id + '\')">چاپ رسید</button>' +
           '<button class="btn btn-outline btn-sm" onclick="shareWaybillPDF(\'' + wb.id + '\')">PDF</button>' +
@@ -1269,10 +1305,17 @@
     }
 
     // ==================== KARDEX ====================
+    function newWaybillFor(col) {
+      switchTab('newwaybill');
+      document.getElementById('wbColleague').value = col;
+      localStorage.setItem('lastColleague', col);
+    }
+
     function renderKardex() {
       const col = document.getElementById('kardexColleague')?.value;
       const container = document.getElementById('kardexTable');
       if (!col) { container.innerHTML = ''; return; }
+      const newBtn = '<button class="btn btn-primary btn-sm" style="margin-bottom:8px" onclick="newWaybillFor(\'' + esc(col) + '\')">+ حواله جدید برای ' + esc(col) + '</button>';
       const map = {};
       state.waybills.filter(w => w.colleague === col).forEach(wb => {
         wb.items.forEach(l => {
@@ -1303,7 +1346,7 @@
       html += '<tr style="font-weight:700;background:#fbf1ef"><td colspan="3">جمع</td><td>' + faNum(totalC, 0) +
         '</td><td>' + faNum(totalL, 0) + '</td><td>' + faNum(totalM) + '</td><td>' + faNum(totalW) + '</td></tr>';
       html += '</tbody></table></div>';
-      container.innerHTML = html;
+      container.innerHTML = newBtn + html;
     }
 
     function exportKardexExcel() {
@@ -1510,6 +1553,61 @@
 
     function clearSig(which) {
       if (sigPads[which]) sigPads[which].clear();
+    }
+
+    function editWaybillInfo(id) {
+      const wb = state.waybills.find(w => w.id === id);
+      if (!wb) return;
+      const customer = prompt('نام مشتری:', wb.customer || '');
+      if (customer === null) return;
+      const phone = prompt('شماره تماس مشتری:', wb.phone || '');
+      if (phone === null) return;
+      const city = prompt('شهر مقصد:', wb.city || '');
+      if (city === null) return;
+      const colleague = prompt('همکار / پخش‌کننده:', wb.colleague || '');
+      if (colleague === null) return;
+      const driver = prompt('مشخصات راننده و ماشین:', wb.driverInfo || '');
+      if (driver === null) return;
+      wb.customer = customer.trim(); wb.phone = phone.trim(); wb.city = city.trim();
+      wb.colleague = colleague.trim(); wb.driverInfo = driver.trim();
+      saveState(); renderWaybills(); toast('مشخصات حواله به‌روز شد');
+    }
+
+    function openFullSig(which) {
+      const src = document.getElementById(which === 'customer' ? 'sigCustomer' : 'sigWarehouse');
+      const ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:100000;display:flex;flex-direction:column;padding:12px;direction:rtl';
+      ov.innerHTML = '<div style="font-weight:700;color:#7d2519;margin-bottom:8px">' + (which === 'customer' ? 'امضای تحویل‌گیرنده (مشتری)' : 'امضای مسئول انبار') + '</div>' +
+        '<canvas id="sfCanvas" style="flex:1;width:100%;border:1px dashed #999;border-radius:10px;touch-action:none"></canvas>' +
+        '<div style="display:flex;gap:8px;margin-top:10px"><button id="sfClear" class="btn btn-outline" style="flex:1">پاک کردن</button><button id="sfOk" class="btn btn-primary" style="flex:1">تأیید امضا</button></div>';
+      document.body.appendChild(ov);
+      const c = document.getElementById('sfCanvas');
+      const r = c.getBoundingClientRect();
+      const dpr = 2;
+      c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+      const ctx = c.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.strokeStyle = '#111';
+      if (src && src.width > 1) {
+        const img = new Image();
+        img.onload = () => ctx.drawImage(img, 0, 0, r.width, r.height);
+        img.src = src.toDataURL('image/png');
+      }
+      let drawing = false;
+      const pos = e => { const b = c.getBoundingClientRect(); const p = e.touches ? e.touches[0] : e; return [p.clientX - b.left, p.clientY - b.top]; };
+      c.addEventListener('pointerdown', e => { drawing = true; const [x, y] = pos(e); ctx.beginPath(); ctx.moveTo(x, y); e.preventDefault(); });
+      c.addEventListener('pointermove', e => { if (!drawing) return; const [x, y] = pos(e); ctx.lineTo(x, y); ctx.stroke(); e.preventDefault(); });
+      ['pointerup', 'pointerleave', 'pointercancel'].forEach(t => c.addEventListener(t, () => drawing = false));
+      document.getElementById('sfClear').onclick = () => ctx.clearRect(0, 0, r.width, r.height);
+      document.getElementById('sfOk').onclick = () => {
+        if (src) {
+          const sctx = src.getContext('2d');
+          const img = new Image();
+          img.onload = () => { sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.clearRect(0, 0, src.width, src.height); sctx.drawImage(img, 0, 0, src.width, src.height); };
+          img.src = c.toDataURL('image/png');
+        }
+        ov.remove();
+      };
     }
 
     function saveSignatures() {
@@ -1882,6 +1980,7 @@
       state.settings.phone = document.getElementById('setPhone')?.value.trim() || '';
       state.settings.receiptFooter = document.getElementById('setFooter')?.value.trim() || '';
       state.settings.smsTemplate = document.getElementById('setSms').value;
+      state.settings.webhookUrl = document.getElementById('setWebhook')?.value.trim() || '';
       // min stock
       const min = {};
       document.querySelectorAll('.min-stock-row').forEach(row => {
@@ -1898,6 +1997,7 @@
     function loadSettingsToForm() {
       { const sd = document.getElementById('setDigits'); if (sd) sd.value = (state.settings && state.settings.digits) || 'fa'; }
       document.getElementById('setMap').value = state.settings.mapLink || '';
+      { const sw = document.getElementById('setWebhook'); if (sw) sw.value = state.settings.webhookUrl || ''; }
       document.getElementById('setAddress').value = state.settings.address || '';
       document.getElementById('setPreparer').value = state.settings.preparer || 'Parsaeian';
       const sp = document.getElementById('setPhone'); if (sp) sp.value = state.settings.phone || '';
@@ -1934,10 +2034,93 @@
     }
 
     // ==================== BACKUP ====================
+
+    function compressImage(file, maxSide, quality) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const sc = Math.min(1, maxSide / Math.max(img.width, img.height));
+          const c = document.createElement('canvas');
+          c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          URL.revokeObjectURL(url);
+          resolve(c.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('img')); };
+        img.src = url;
+      });
+    }
+
+    function voiceInput(targetId, after) {
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) { toast('ورود صوتی در این مرورگر پشتیبانی نمی‌شود'); return; }
+      const rec = new SR();
+      rec.lang = 'fa-IR'; rec.interimResults = false; rec.maxAlternatives = 1;
+      rec.onresult = (e) => {
+        const t = e.results[0][0].transcript.trim();
+        const el = document.getElementById(targetId);
+        if (el) el.value = t;
+        if (after) after();
+        if (typeof renderInventory === 'function' && targetId === 'invSearch') renderInventory();
+      };
+      rec.onerror = () => toast('صدا شنیده نشد، دوباره تلاش کنید');
+      toast('بگویید...');
+      rec.start();
+    }
+
+    function runUniSearch() {
+      const q = (document.getElementById('uniSearch')?.value || '').trim().toLowerCase();
+      const box = document.getElementById('uniResults');
+      if (!box) return;
+      if (!q) { box.innerHTML = ''; return; }
+      const hit = s => String(s || '').toLowerCase().includes(q);
+      const items = state.items.filter(i => hit(i.code) || hit(i.name) || hit(i.size) || hit(i.location)).slice(0, 8);
+      const wbs = state.waybills.filter(w => hit(w.no) || hit(w.customer) || hit(w.colleague) || hit(w.city)).slice(0, 8);
+      const cols = [...new Set(state.waybills.map(w => w.colleague).filter(Boolean))].filter(c => hit(c)).slice(0, 5);
+      let html = '';
+      items.forEach(i => { html += '<div class="wb-item" style="padding:6px;border-bottom:1px solid #eee;cursor:pointer" onclick="goItem(\'' + esc(i.code) + '\')">کالا: ' + esc(i.code) + ' · ' + esc(i.name) + ' · ' + esc(i.size) + ' · ' + faNum(i.stockM2) + ' متر</div>'; });
+      wbs.forEach(w => { html += '<div style="padding:6px;border-bottom:1px solid #eee;cursor:pointer" onclick="switchTab(\'waybills\')">حواله ' + esc(w.no) + ' · ' + esc(w.customer) + '</div>'; });
+      cols.forEach(c => { html += '<div style="padding:6px;border-bottom:1px solid #eee;cursor:pointer" onclick="goColleague(\'' + esc(c) + '\')">همکار: ' + esc(c) + '</div>'; });
+      box.innerHTML = html || '<div class="muted">چیزی پیدا نشد</div>';
+    }
+    function goItem(code) {
+      switchTab('inventory');
+      const s = document.getElementById('invSearch'); if (s) { s.value = code; renderInventory(); }
+    }
+    function goColleague(c) {
+      switchTab('waybills');
+      const sel = document.getElementById('kardexColleague');
+      if (sel) { sel.value = c; renderKardex(); }
+    }
+
+    function hideBackupBanner() { const b = document.getElementById('backupBanner'); if (b) b.style.display = 'none'; }
+    function checkBackupReminder() {
+      const last = parseInt(localStorage.getItem('lastBackupAt') || '0', 10);
+      if (!last || Date.now() - last > 7 * 24 * 3600 * 1000) {
+        const b = document.getElementById('backupBanner'); if (b) b.style.display = 'block';
+      }
+    }
+
+    function vehicleFor(kg) {
+      if (kg <= 1000) return 'وانت (تا ۱۰۰۰ کیلو)';
+      if (kg <= 3000) return 'کامیونت / کامیون کوچک (تا ۳۰۰۰ کیلو)';
+      if (kg <= 8000) return 'کامیون متوسط (تا ۸۰۰۰ کیلو)';
+      return 'کامیون بزرگ یا بیش از یک ماشین';
+    }
+
+    function sendToChannel(payload) {
+      const url = state.settings && state.settings.webhookUrl;
+      if (!url) return;
+      fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(payload) }).catch(() => {});
+    }
+
     function backupJSON() {
       const data = JSON.stringify(state, null, 2);
       const blob = new Blob([data], { type: 'application/json' });
-      downloadBlob(blob, 'backup-amin-v4-' + todayISO() + '.json');
+      downloadBlob(blob, 'backup-setareh-' + todayISO() + '.json');
+      localStorage.setItem('lastBackupAt', String(Date.now()));
+      hideBackupBanner();
       toast('پشتیبان دانلود شد');
     }
 
@@ -2036,6 +2219,9 @@
     updateWbDateLabel();
     loadState();
     renderAll();
+    checkBackupReminder();
+    { const lc = localStorage.getItem('lastColleague'); const wc = document.getElementById('wbColleague'); if (wc && lc && !wc.value) wc.value = lc; }
+    refreshItemList();
     loadSettingsToForm();
 
     // Service Worker (basic offline)
