@@ -969,6 +969,90 @@
       renderInventory();
     }
 
+    function handleExcelImport(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!confirm('ورود فایل جدید، تمام موجودی و حواله‌های قبلی را پاک می‌کند. ادامه می‌دهید؟')) {
+        e.target.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function (ev) {
+        try {
+          const data = new Uint8Array(ev.target.result);
+          const wb = XLSX.read(data, { type: 'array', cellDates: true });
+          let sheetName = wb.SheetNames.find(n => n.trim() === 'Base') || wb.SheetNames[0];
+          const sheet = wb.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+          if (!rows.length) {
+            toast('شیت خالی است');
+            return;
+          }
+          const items = [];
+          rows.forEach((row, idx) => {
+            let code = row['کد طرح'] ?? row['کد'] ?? row['code'] ?? '';
+            let name = row['نام طرح'] ?? row['نام'] ?? row['name'] ?? '';
+            // handle Excel date-converted codes
+            if (code instanceof Date || (typeof code === 'object' && code && code.getFullYear)) {
+              const y = code.getFullYear();
+              const m = code.getMonth() + 1;
+              const d = code.getDate();
+              if (y === 2026) code = m + '-' + d;
+              else code = y + '-' + m;
+            } else if (typeof code === 'number') {
+              // sometimes serial date
+              try {
+                const dt = XLSX.SSF.parse_date_code(code);
+                if (dt) {
+                  if (dt.y === 2026) code = dt.m + '-' + dt.d;
+                  else code = dt.y + '-' + dt.m;
+                }
+              } catch (_) {}
+            }
+            code = String(code).trim();
+            name = String(name).trim();
+            if (!code || !name) return; // skip summary rows
+
+            let size = String(row['سایز'] ?? row['size'] ?? '').replace(/\*/g, '×').trim();
+            let gradeRaw = row['گرید / درجه'] ?? row['گرید'] ?? row['درجه'] ?? '';
+            let grade = String(gradeRaw).trim();
+            if (/^\d+$/.test(grade)) grade = 'درجه ' + grade;
+
+            const cpp = parseFloat(row['کارتن در هر پالت'] ?? row['کارتن در پالت'] ?? 0) || 0;
+            const m2c = parseFloat(row['متراژ هر کارتن'] ?? 0) || 0;
+            const wgt = parseFloat(row['وزن هر کارتن'] ?? 0) || 0;
+            const stock = parseFloat(row['موجودی نهایی (متراژ)'] ?? row['موجودی نهایی'] ?? row['موجودی'] ?? 0) || 0;
+            let loc = String(row['جایگاه نهایی'] ?? row['جایگاه'] ?? '').trim();
+            let desc = String(row['توضیحات'] ?? '').trim();
+
+            items.push({
+              id: uid(),
+              code, name, size, grade,
+              cartonsPerPallet: cpp,
+              m2PerCarton: m2c,
+              weightPerCarton: wgt,
+              stockM2: stock,
+              location: loc,
+              description: desc,
+              brand: getBrand(desc)
+            });
+          });
+
+          state.items = items;
+          state.waybills = [];
+          state.incomings = [];
+          saveState();
+          renderAll();
+          toast(faNum(items.length, 0) + ' کالا وارد شد');
+        } catch (err) {
+          console.error(err);
+          toast('خطا در خواندن فایل: ' + err.message);
+        }
+        e.target.value = '';
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
     function exportInventoryExcel() {
       const data = state.items.map(i => {
         const cartons = calcCartons(i.stockM2, i.m2PerCarton);
