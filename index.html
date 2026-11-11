@@ -313,7 +313,8 @@
           <div><label>تعداد پالت</label><input id="mPallets" type="number" step="0.01" placeholder="اختیاری" oninput="calcManualFromPallets()" /></div>
         </div>
         <div class="row">
-          <div><label>وزن هر کارتن (کیلو)</label><input id="mWgt" type="number" step="0.01" /></div>
+          <div><label>وزن هر کارتن (کیلو)</label><input id="mWgt" type="number" step="0.01" />
+            <label>ارزش هر متر مربع</label><input id="mVal" type="number" step="1" /></div>
           <div></div>
         </div>
         <div class="row">
@@ -561,6 +562,10 @@
         <input id="setPhone" placeholder="شماره مسئول انبار (روی سربرگ و رسید چاپ می‌شود)" />
         <label>توضیحات زیر حواله (چند خطی، روی رسید چاپ می‌شود)</label>
         <textarea id="setFooter" rows="2" placeholder="مثلاً: بار پس از خروج از انبار به عهده خریدار است."></textarea>
+        <label>رنگ نوشته توضیحات زیر حواله</label><input id="setNoteColor" type="color" value="#111111" />
+        <label>رنگ زمینه کادر توضیحات</label><input id="setNoteBg" type="color" value="#ffffff" />
+        <label>متن زیر لوگو در سربرگ (لاتین)</label><input id="setLetterLatin" placeholder="SETAREH TILE" />
+        <label>متن زیر عنوان سربرگ (لاتین)</label><input id="setLetterSub" placeholder="Yazd Warehouse" />
         <label>قالب پیامک به مشتری</label>
         <textarea id="setSms" rows="4"></textarea>
         <label>آدرس ارسال خودکار به کانال (اختیاری)</label>
@@ -831,6 +836,7 @@
         m2PerCarton: parseFloat(document.getElementById('mM2').value) || 0,
         cartonsPerPallet: parseFloat(document.getElementById('mCpp').value) || 0,
         weightPerCarton: parseFloat(document.getElementById('mWgt').value) || 0,
+        valuePerM2: parseFloat(document.getElementById('mVal')?.value) || 0,
         location: document.getElementById('mLoc').value.trim(),
         description: document.getElementById('mDesc').value.trim(),
         brand: getBrand(document.getElementById('mDesc').value),
@@ -888,6 +894,7 @@
         '<div class="row">' + f('سایز', 'size') + f('گرید / درجه', 'grade') + '</div>' +
         '<div class="row">' + f('متراژ موجود', 'stockM2', 'number', '0.01') + f('متراژ هر کارتن', 'm2PerCarton', 'number', '0.01') + '</div>' +
         '<div class="row">' + f('کارتن در پالت', 'cartonsPerPallet', 'number') + f('وزن هر کارتن (کیلو)', 'weightPerCarton', 'number', '0.01') + '</div>' +
+        '<div class="row">' + f('ارزش هر متر مربع', 'valuePerM2', 'number', '1') + '</div>' +
         '<div class="row">' + f('جایگاه', 'location') + f('توضیحات / برند', 'description') + '</div>' +
         '<div style="display:flex;gap:8px;margin-top:12px"><button id="eiSave" class="btn btn-primary" style="flex:1">ذخیره</button><button id="eiCancel" class="btn btn-outline" style="flex:1">انصراف</button></div></div>';
       document.body.appendChild(ov);
@@ -1021,6 +1028,7 @@
             const cpp = parseFloat(row['کارتن در هر پالت'] ?? row['کارتن در پالت'] ?? 0) || 0;
             const m2c = parseFloat(row['متراژ هر کارتن'] ?? 0) || 0;
             const wgt = parseFloat(row['وزن هر کارتن'] ?? 0) || 0;
+      const valM2 = parseFloat(String(row['ارزش'] ?? 0).replace(/,/g, '')) || 0;
             const stock = parseFloat(row['موجودی نهایی (متراژ)'] ?? row['موجودی نهایی'] ?? row['موجودی'] ?? 0) || 0;
             let loc = String(row['جایگاه نهایی'] ?? row['جایگاه'] ?? '').trim();
             let desc = String(row['توضیحات'] ?? '').trim();
@@ -1031,6 +1039,7 @@
               cartonsPerPallet: cpp,
               m2PerCarton: m2c,
               weightPerCarton: wgt,
+              valuePerM2: valM2,
               stockM2: stock,
               location: loc,
               description: desc,
@@ -1245,7 +1254,7 @@
     }
 
     function updateWbTotals() {
-      let totalCartons = 0, totalM2 = 0, totalWgt = 0;
+      let totalCartons = 0, totalM2 = 0, totalWgt = 0, totalVal = 0;
       document.querySelectorAll('#wbItems .item-row').forEach(row => {
         const id = itemIdFromLabel(row.querySelector('.wb-item-select').value);
         const c = lineCartons(row);
@@ -1254,12 +1263,14 @@
           totalCartons += c;
           totalM2 += c * (item.m2PerCarton || 0);
           totalWgt += c * (item.weightPerCarton || 0);
+          totalVal += c * (item.m2PerCarton || 0) * (item.valuePerM2 || 0);
         }
       });
       document.getElementById('wbTotals').innerHTML =
         '<div class="stat"><div class="val">' + faNum(totalCartons, 0) + '</div><div class="lbl">کارتن</div></div>' +
         '<div class="stat"><div class="val">' + faNum(totalM2) + '</div><div class="lbl">متر مربع</div></div>' +
-        '<div class="stat"><div class="val">' + faNum(totalWgt) + '</div><div class="lbl">کیلوگرم</div></div>';
+        '<div class="stat"><div class="val">' + faNum(totalWgt) + '</div><div class="lbl">کیلوگرم</div></div>' +
+        '<div class="stat"><div class="val">' + faNum(totalVal) + '</div><div class="lbl">ارزش (جمع)</div></div>';
     }
 
     function saveWaybill() {
@@ -1283,7 +1294,7 @@
           hasError = true;
           return;
         }
-        lines.push({ itemId: id, cartons: c, loaded: 0 });
+        lines.push({ itemId: id, cartons: c, loaded: 0, value: c * (item.m2PerCarton || 0) * (item.valuePerM2 || 0) });
       });
       if (hasError) return;
       if (!lines.length) { toast('حداقل یک کالا اضافه کنید'); return; }
@@ -1657,9 +1668,9 @@
       const brand = document.getElementById('dailyBrand')?.value || '';
       const pageBreak = document.getElementById('dailyPageBreak')?.checked;
       const BC = {
-        'ستاره': { bg: '#7d2519', fg: '#ffffff', head: '#9b3a2c', z: '#fbf1ef', title: 'کاشی ستاره' },
-        'حافظ':  { bg: '#93c572', fg: '#1f2d1a', head: '#6e9e4a', z: '#f1f8e9', title: 'کاشی حافظ' },
-        'سایر':  { bg: '#f7c948', fg: '#3d2e00', head: '#c9a000', z: '#fff8d6', title: 'سایر شرکت‌ها' }
+        'ستاره': { bg: '#7d2519', fg: '#ffffff', head: '#9b3a2c', z: '#f3dcd6', tx: '#5c1a10', title: 'کاشی ستاره' },
+        'حافظ':  { bg: '#93c572', fg: '#1f2d1a', head: '#6e9e4a', z: '#e2f0d4', tx: '#1f2d1a', title: 'کاشی حافظ' },
+        'سایر':  { bg: '#f7c948', fg: '#3d2e00', head: '#c9a000', z: '#fff1b8', tx: '#3d2e00', title: 'سایر شرکت‌ها' }
       };
       const keyOf = i => (i.brand === 'ستاره' || i.brand === 'حافظ') ? i.brand : 'سایر';
       const list = state.items.filter(i => {
@@ -1704,7 +1715,7 @@
         sizes.forEach((size) => {
           const items = bySize[size];
           const sizeSum = items.reduce((s, i) => s + i.stockM2, 0);
-          html += '<tr style="background:' + BC[b].z + ';color:' + BC[b].fg + ';font-weight:700;' + PC + '"><td colspan="8" style="text-align:right;padding:6px 8px">سایز ' + esc(size) + ' — جمع: ' + faNum(sizeSum) + ' متر</td></tr>';
+          html += '<tr style="background:' + BC[b].z + ';color:' + BC[b].tx + ';font-weight:700;' + PC + '"><td colspan="8" style="text-align:right;padding:6px 8px">سایز ' + esc(size) + ' — جمع: ' + faNum(sizeSum) + ' متر</td></tr>';
           items.forEach(i => {
             n++;
             const cartons = calcCartons(i.stockM2, i.m2PerCarton);
@@ -1715,7 +1726,7 @@
             if (i.cartonsPerPallet > 0 && pallets > 0) packStr = faNum(pallets, 0) + ' پ' + (remain ? ' + ' + faNum(remain, 0) + ' ک' : '');
             const bd = 'border-bottom:1px solid #e5e7eb;padding:5px;';
             html += '<tr style="' + (isLow ? 'background:#fde2e2;color:#991b1b;font-weight:700;' : '') + PC + '">' +
-              '<td style="' + bd + '">' + n + '</td><td style="' + bd + '">' + esc(i.code) + '</td><td style="' + bd + 'text-align:right">' + esc(i.name) + '</td>' +
+              '<td style="' + bd + '">' + n + '</td><td style="' + bd + '">' + esc(i.code) + '</td><td style="' + bd + 'text-align:right">' + esc(i.name) + ' <span style="font-size:9px;color:#666">' + esc(i.brand === 'سایر' ? (i.description || '') : i.brand) + '</span></td>' +
               '<td style="' + bd + '">' + esc(i.size) + '</td><td style="' + bd + '">' + esc(i.grade || '') + '</td><td style="' + bd + '">' + faNum(i.m2PerCarton) + '</td>' +
               '<td style="' + bd + '">' + packStr + '</td><td style="' + bd + 'font-weight:700">' + faNum(i.stockM2) + '</td></tr>';
           });
@@ -1987,7 +1998,7 @@
     function reportHeaderHtml() {
       return '<div style="background:#7d2519;color:#fff;border-radius:10px;padding:12px 14px;border-bottom:3px solid #c9a227;display:flex;align-items:center;justify-content:space-between;gap:8px;-webkit-print-color-adjust:exact;print-color-adjust:exact">' +
         '<div style="width:24%;text-align:center"><img src="' + LOGO_DATA + '" style="height:60px;width:auto;display:block;margin:0 auto" />' +
-          '<div style="color:#c9a227;font-weight:700;font-size:11px;letter-spacing:1px;margin-top:3px">SETAREH</div></div>' +
+          '<div style="color:#c9a227;font-weight:700;font-size:11px;letter-spacing:1px;margin-top:3px">' + esc(state.settings.letterLatin || 'SETAREH TILE') + '</div></div>' +
         '<div style="flex:1;text-align:center"><div style="font-size:17px;font-weight:700;color:#e9c46a">' + esc((state.settings.headerMain || 'نماینده انحصاری استان یزد')) + '</div>' +
           '<div style="font-size:11px;color:#e9c46a;margin-top:4px">' + esc((state.settings.headerSub || 'استان یزد (خالقیه)')) + '</div></div>' +
         '<div style="width:24%;text-align:center;font-size:11px;line-height:1.8"><div>تاریخ: ' + dateTextOf(null) + '</div><div>ساعت: ' + nowTime() + '</div></div>' +
@@ -1998,9 +2009,9 @@
       const mgr = '<div style="font-size:12px;margin:6px 2px 0">مسئول انبار: <b>' + esc(state.settings.manager || '-') + '</b> · ساعت: ' + t + '</div>';
       return '<div style="background:#7d2519;border-radius:10px;padding:12px 14px;border-bottom:3px solid #c9a227;display:flex;align-items:center;justify-content:space-between;gap:8px;-webkit-print-color-adjust:exact;print-color-adjust:exact">' +
         '<div style="width:26%;text-align:center"><img src="' + LOGO_DATA + '" style="height:54px;width:auto;display:block;margin:0 auto" />' +
-          '<div style="color:#c9a227;font-weight:700;font-size:11px;letter-spacing:1px;margin-top:3px">SETAREH</div></div>' +
+          '<div style="color:#c9a227;font-weight:700;font-size:11px;letter-spacing:1px;margin-top:3px">' + esc(state.settings.letterLatin || 'SETAREH TILE') + '</div></div>' +
         '<div style="flex:1;text-align:center"><div style="font-size:19px;font-weight:700;color:#e9c46a">' + title + '</div>' +
-          '<div style="font-size:11px;color:#c9a227;letter-spacing:1px;margin-top:3px">Yazd Warehouse</div></div>' +
+          '<div style="font-size:11px;color:#c9a227;letter-spacing:1px;margin-top:3px">' + esc(state.settings.letterSub || 'Yazd Warehouse') + '</div></div>' +
         '<div style="width:26%;text-align:center;font-size:11px;line-height:1.8;color:#e9c46a"><div>' + dateLabel + ': ' + dateTextOf(dateIso) + '</div><div>ساعت: ' + t + '</div></div>' +
       '</div>' + mgr;
     }
@@ -2010,17 +2021,17 @@
         '<div style="border-top:1px solid #6b7280;margin-top:4px;padding-top:3px;font-size:10px;color:#444">امضا و تاریخ</div></div>';
     }
     function buildReceiptHtml(wb, isLoading = false) {
-      let c = 0, m = 0, kg = 0;
+      let c = 0, m = 0, kg = 0, vsum = 0;
       const rows = (wb.items || []).map(l => {
         const it = state.items.find(i => i.id === l.itemId) || {};
         const m2 = l.cartons * (it.m2PerCarton || 0);
         const w = l.cartons * (it.weightPerCarton || 0);
         const remain = l.cartons - (l.loaded || 0);
-        c += l.cartons; m += m2; kg += w;
+        c += l.cartons; m += m2; kg += w; const lv = m2 * (it.valuePerM2 || 0); vsum += lv;
         const td = 'border:1px solid #cbd5e1;padding:5px;text-align:center';
         return '<tr><td style="' + td + '">' + esc(it.code || '') + '</td><td style="' + td + ';text-align:right">' + esc(it.name || '') + '</td>' +
           '<td style="' + td + '">' + esc(it.size || '') + '</td><td style="' + td + '">' + esc(it.grade || '') + '</td>' +
-          '<td style="' + td + '">' + faNum(l.cartons, 0) + '</td><td style="' + td + '">' + faNum(m2) + '</td><td style="' + td + '">' + faNum(w) + '</td>' +
+          '<td style="' + td + '">' + faNum(l.cartons, 0) + '</td><td style="' + td + '">' + faNum(m2) + '</td><td style="' + td + '">' + faNum(w) + '</td><td style="' + td + '">' + faNum(lv) + '</td>' +
           (isLoading ? '<td style="' + td + '">' + faNum(remain, 0) + '</td><td style="' + td + '">' + faNum(l.loaded || 0, 0) + '</td>' : '') + '</tr>';
       }).join('');
       const th = 'border:1px solid #7d2519;padding:6px;background:#9b3a2c;color:#fff';
@@ -2033,16 +2044,18 @@
         '<div style="font-size:12px;margin:0 2px 8px">مشتری: <b>' + esc(wb.customer || '') + '</b> · تماس: ' + esc(wb.phone || wb.customerTel || '-') + ' · شهر مقصد: ' + esc(wb.city || '-') + (wb.colleague ? ' · همکار: ' + esc(wb.colleague) : '') + '</div>' +
         '<table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr>' +
           '<th style="' + th + '">کد</th><th style="' + th + '">نام طرح</th><th style="' + th + '">سایز</th><th style="' + th + '">گرید/درجه</th>' +
-          '<th style="' + th + '">کارتن</th><th style="' + th + '">متراژ</th><th style="' + th + '">وزن (کیلو)</th>' +
+          '<th style="' + th + '">کارتن</th><th style="' + th + '">متراژ</th><th style="' + th + '">وزن (کیلو)</th><th style="' + th + '">ارزش</th>' +
           (isLoading ? '<th style="' + th + '">مانده</th><th style="' + th + '">بارگیری</th>' : '') +
           '</tr></thead><tbody>' + rows + '</tbody>' +
-          '<tfoot><tr style="font-weight:700"><td colspan="4" style="border:1px solid #cbd5e1;padding:5px;text-align:center">جمع</td><td style="border:1px solid #cbd5e1;padding:5px;text-align:center">' + faNum(c, 0) + '</td><td style="border:1px solid #cbd5e1;padding:5px;text-align:center">' + faNum(m) + '</td><td style="border:1px solid #cbd5e1;padding:5px;text-align:center">' + faNum(kg) + '</td>' + (isLoading ? '<td colspan="2"></td>' : '') + '</tr></tfoot></table>' +
+          '<tfoot><tr style="font-weight:700"><td colspan="4" style="border:1px solid #cbd5e1;padding:5px;text-align:center">جمع</td><td style="border:1px solid #cbd5e1;padding:5px;text-align:center">' + faNum(c, 0) + '</td><td style="border:1px solid #cbd5e1;padding:5px;text-align:center">' + faNum(m) + '</td><td style="border:1px solid #cbd5e1;padding:5px;text-align:center">' + faNum(kg) + '</td><td style="border:1px solid #cbd5e1;padding:5px;text-align:center">' + faNum(vsum) + '</td>' + (isLoading ? '<td colspan="2"></td>' : '') + '</tr></tfoot></table>' +
         '<div style="margin-top:10px;font-size:12px">راننده: <b>' + esc(wb.driverName || '-') + '</b> · تلفن: ' + esc(wb.driverPhone || '-') + ' · ماشین: ' + esc(wb.driverInfo || '-').replace(/\n/g, ' · ') + '</div>' +
         '<div style="display:flex;gap:20px;margin-top:22px">' +
           sigBlock('مسئول انبار', state.settings.stockSig || '') +
           sigBlock('تحویل‌گیرنده (مشتری)', (wb.signatures && wb.signatures.customer) || wb.signCustomer || state.settings.custSig || '') +
         '</div>' +
-        '<div style="margin-top:14px;font-size:10px;color:#555;text-align:center">آدرس انبار: ' + esc(state.settings.address || '-') + (state.settings.phone ? ' · مسئول انبار: ' + esc(state.settings.phone) : '') + '</div>' +
+        (state.settings.manager ? '<div style="margin-top:10px;font-size:12px;text-align:left">مسئول انبار: <b>' + esc(state.settings.manager) + '</b></div>' : '') +
+        (state.settings.receiptFooter ? '<div style="margin-top:10px;padding:8px 10px;border:1px solid #7d2519;border-radius:8px;background:' + esc(state.settings.noteBg || '#ffffff') + ';color:' + esc(state.settings.noteColor || '#111111') + ';font-size:12px;white-space:pre-line">' + esc(state.settings.receiptFooter) + '</div>' : '') +
+        '<div style="margin-top:14px;font-size:10px;color:#555;text-align:center">آدرس انبار: ' + esc(state.settings.address || '-') + (state.settings.phone ? ' · تلفن مسئول انبار: ' + esc(state.settings.phone) : '') + '</div>' +
         '</div></div>';
     }
     function buildIncomingHtml(rec) {
@@ -2531,6 +2544,10 @@
       state.settings.preparer = document.getElementById('setPreparer').value.trim() || 'Parsaeian';
       state.settings.phone = document.getElementById('setPhone')?.value.trim() || '';
       state.settings.receiptFooter = document.getElementById('setFooter')?.value.trim() || '';
+      state.settings.noteColor = document.getElementById('setNoteColor')?.value || '#111111';
+      state.settings.noteBg = document.getElementById('setNoteBg')?.value || '#ffffff';
+      state.settings.letterLatin = document.getElementById('setLetterLatin')?.value.trim() || '';
+      state.settings.letterSub = document.getElementById('setLetterSub')?.value.trim() || '';
       state.settings.smsTemplate = document.getElementById('setSms').value;
       state.settings.webhookUrl = document.getElementById('setWebhook')?.value.trim() || '';
       // min stock
@@ -2557,6 +2574,7 @@
       document.getElementById('setPreparer').value = state.settings.preparer || 'Parsaeian';
       const sp = document.getElementById('setPhone'); if (sp) sp.value = state.settings.phone || '';
       const sf = document.getElementById('setFooter'); if (sf) sf.value = state.settings.receiptFooter || DEFAULT_SETTINGS.receiptFooter || '';
+      { const nc = document.getElementById('setNoteColor'); if (nc) nc.value = state.settings.noteColor || '#111111'; const nb = document.getElementById('setNoteBg'); if (nb) nb.value = state.settings.noteBg || '#ffffff'; const ll = document.getElementById('setLetterLatin'); if (ll) ll.value = state.settings.letterLatin || ''; const ls = document.getElementById('setLetterSub'); if (ls) ls.value = state.settings.letterSub || ''; }
       document.getElementById('setSms').value = state.settings.smsTemplate || DEFAULT_SETTINGS.smsTemplate;
       renderMinStock();
     }
