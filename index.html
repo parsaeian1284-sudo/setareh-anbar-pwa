@@ -572,6 +572,7 @@
         <label>تاریخ سربرگ موجودی روزانه</label><input id="setDailyDate" placeholder="مثلاً ۲۱ آبان ۱۴۰۵" />
         <label>ساعت سربرگ موجودی روزانه</label><input id="setDailyTime" placeholder="مثلاً ۰۸:۰۰" />
         <label>رنگ نوشته‌های تاریخ و ساعت موجودی روزانه</label><input id="setDailyColor" type="color" value="#e9c46a" />
+        <label>نام تنظیم‌کننده در موجودی روزانه: بالا یا پایین گزارش</label><select id="setPrepPos"><option value="top">بالای گزارش</option><option value="bottom">پایین گزارش</option></select>
         <label>قالب پیامک به مشتری</label>
         <textarea id="setSms" rows="4"></textarea>
         <label>آدرس ارسال خودکار به کانال (اختیاری)</label>
@@ -1770,6 +1771,8 @@
       });
       if (!list.length) html += '<p style="text-align:center">کالایی پیدا نشد</p>';
       html += '</div></div>';
+      const prepLine = '<div style="font-size:12px;margin:6px 2px;display:flex;justify-content:space-between"><span>تنظیم‌کننده: <b>' + esc(state.settings.preparer || '-') + '</b></span><span>ساعت: ' + nowTime() + '</span></div>';
+      html = (state.settings.prepPos === 'bottom') ? html + prepLine : prepLine + html;
       document.getElementById('dailyTableWrap').innerHTML = html;
     }
 
@@ -2331,8 +2334,6 @@
     }
 
     function printHtmlNow(html) {
-      const top = '<div style="font-size:11px;color:#444;display:flex;justify-content:space-between;margin-bottom:6px"><span>مسئول انبار: <b>' + esc(state.settings.manager || '-') + '</b></span><span>ساعت: ' + nowTime() + '</span></div>';
-      html = top + html;
       let st = document.getElementById('printCss');
       if (!st) { st = document.createElement('style'); st.id = 'printCss'; document.head.appendChild(st); }
       st.textContent = '@media print {' +
@@ -2587,6 +2588,7 @@
       state.settings.dailyDate = document.getElementById('setDailyDate')?.value.trim() || '';
       state.settings.dailyTime = document.getElementById('setDailyTime')?.value.trim() || '';
       state.settings.dailyColor = document.getElementById('setDailyColor')?.value || '#e9c46a';
+      state.settings.prepPos = document.getElementById('setPrepPos')?.value || 'top';
       state.settings.smsTemplate = document.getElementById('setSms').value;
       state.settings.webhookUrl = document.getElementById('setWebhook')?.value.trim() || '';
       // min stock
@@ -2613,7 +2615,7 @@
       document.getElementById('setPreparer').value = state.settings.preparer || 'Parsaeian';
       const sp = document.getElementById('setPhone'); if (sp) sp.value = state.settings.phone || '';
       const sf = document.getElementById('setFooter'); if (sf) sf.value = state.settings.receiptFooter || DEFAULT_SETTINGS.receiptFooter || '';
-      { const nc = document.getElementById('setNoteColor'); if (nc) nc.value = state.settings.noteColor || '#111111'; const nb = document.getElementById('setNoteBg'); if (nb) nb.value = state.settings.noteBg || '#ffffff'; const ll = document.getElementById('setLetterLatin'); if (ll) ll.value = state.settings.letterLatin || ''; const ls = document.getElementById('setLetterSub'); if (ls) ls.value = state.settings.letterSub || ''; const dd = document.getElementById('setDailyDate'); if (dd) dd.value = state.settings.dailyDate || ''; const dt = document.getElementById('setDailyTime'); if (dt) dt.value = state.settings.dailyTime || ''; const dc = document.getElementById('setDailyColor'); if (dc) dc.value = state.settings.dailyColor || '#e9c46a'; }
+      { const nc = document.getElementById('setNoteColor'); if (nc) nc.value = state.settings.noteColor || '#111111'; const nb = document.getElementById('setNoteBg'); if (nb) nb.value = state.settings.noteBg || '#ffffff'; const ll = document.getElementById('setLetterLatin'); if (ll) ll.value = state.settings.letterLatin || ''; const ls = document.getElementById('setLetterSub'); if (ls) ls.value = state.settings.letterSub || ''; const dd = document.getElementById('setDailyDate'); if (dd) dd.value = state.settings.dailyDate || ''; const dt = document.getElementById('setDailyTime'); if (dt) dt.value = state.settings.dailyTime || ''; const dc = document.getElementById('setDailyColor'); if (dc) dc.value = state.settings.dailyColor || '#e9c46a'; const pp = document.getElementById('setPrepPos'); if (pp) pp.value = state.settings.prepPos || 'top'; }
       document.getElementById('setSms').value = state.settings.smsTemplate || DEFAULT_SETTINGS.smsTemplate;
       renderMinStock();
     }
