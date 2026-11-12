@@ -1,4 +1,4 @@
-const CACHE = 'setareh-install-8';
+const CACHE = 'setareh-install-10';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
