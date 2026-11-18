@@ -799,8 +799,11 @@
           const parsed = JSON.parse(raw);
           if (parsed && Array.isArray(parsed.items) && Array.isArray(parsed.waybills)) {
             state = parsed;
-            if (!state.settings) state.settings = { ...DEFAULT_SETTINGS };
+            state.settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
             if (!Array.isArray(state.incomings)) state.incomings = [];
+            if (!Array.isArray(state.returns)) state.returns = [];
+            if (!Array.isArray(state.cash)) state.cash = [];
+            if (!Array.isArray(state.shifts)) state.shifts = [];
             return true;
           }
         }
@@ -875,7 +878,10 @@
 
     function todayISO() {
       const d = new Date();
-      return d.toISOString().slice(0, 10);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return y + '-' + m + '-' + day;
     }
 
     function toast(msg, ms = 2800) {
@@ -1023,10 +1029,16 @@
     }
 
     function deleteItem(id) {
+      const usedInWaybills = (state.waybills || []).some(w => (w.items || []).some(l => l.itemId === id));
+      const usedInIncoming = (state.incomings || []).some(r => (r.items || []).some(l => l.itemId === id));
+      const usedInReturns = (state.returns || []).some(r => r.itemId === id);
+      if (usedInWaybills || usedInIncoming || usedInReturns) {
+        toast('این کالا سابقه حواله یا ورود دارد؛ برای حفظ کارتکس امکان حذف آن نیست. نام یا کد را ویرایش کنید.');
+        return;
+      }
       if (!confirm('حذف این کالا؟')) return;
       state.items = state.items.filter(i => i.id !== id);
-      saveState();
-      renderInventory();
+      saveState(); renderInventory();
       toast('حذف شد');
     }
 
@@ -1172,7 +1184,7 @@
           items.forEach(ni => { const o = oldItems.find(x => String(x.code) === String(ni.code)); if (o) ni.id = o.id; });
           const keptOld = oldItems.filter(o => !items.some(ni => String(ni.code) === String(o.code)));
           state.items = items.concat(keptOld);
-          state.incomings = [];
+          // Preserve incoming documents; inventory import must not erase document history.
           saveState();
           renderAll();
           toast(faNum(items.length, 0) + ' کالا وارد شد');
@@ -1240,57 +1252,66 @@
       const supplier = (document.getElementById('inSupplier')?.value || '').trim();
       const notes = (document.getElementById('inNotes')?.value || '').trim();
       const driverIn = (document.getElementById('inDriver')?.value || '').trim();
-      const lines = [];
-      let hasError = false;
+      const rows = [...document.querySelectorAll('#inItems .item-row')];
+      const prepared = [];
+      const pendingItems = [];
+      const errors = [];
 
-      document.querySelectorAll('#inItems .item-row').forEach(row => {
-        const existingId = row.querySelector('.in-item-select')?.value;
-        const cartons = parseInt(row.querySelector('.in-cartons')?.value) || 0;
+      if (no && (state.incomings || []).some(r => String(r.no) === no)) {
+        toast('شماره حواله ورودی تکراری است'); return;
+      }
+
+      rows.forEach((row, idx) => {
+        const existingId = row.querySelector('.in-item-select')?.value || '';
+        const cartons = parseFloat(numFa(row.querySelector('.in-cartons')?.value || '0')) || 0;
         if (cartons <= 0) return;
+        if (!Number.isFinite(cartons) || cartons <= 0) { errors.push('تعداد ردیف ' + (idx + 1) + ' معتبر نیست'); return; }
 
         if (existingId) {
           let item = state.items.find(i => i.id === existingId);
-          if (!item) return;
+          if (!item) { errors.push('کالای ردیف ' + (idx + 1) + ' پیدا نشد'); return; }
           const wantGrade = (row.querySelector('.in-grade')?.value || '').trim();
           if (wantGrade && wantGrade !== String(item.grade || '')) {
-            const gItem = state.items.find(i => i.code === item.code && String(i.grade || '') === wantGrade);
-            if (gItem) { item = gItem; }
-            else {
-              const created = Object.assign({}, item, { id: uid(), grade: wantGrade, stockM2: 0 });
-              state.items.push(created); item = created;
+            let target = state.items.find(i => i.code === item.code && String(i.grade || '') === wantGrade);
+            if (!target) {
+              target = Object.assign({}, item, { id: uid(), grade: wantGrade, stockM2: 0 });
+              pendingItems.push(target);
             }
+            item = target;
           }
-          const m2 = cartons * (item.m2PerCarton || 0);
-          item.stockM2 = (item.stockM2 || 0) + m2;
-          lines.push({ itemId: item.id, code: item.code, name: item.name, size: item.size, grade: item.grade || '', cartons, m2 });
+          const m2c = Number(item.m2PerCarton) || 0;
+          if (!(m2c > 0)) { errors.push('متراژ هر کارتن برای ' + item.name + ' تعریف نشده'); return; }
+          prepared.push({ item, cartons, m2: +(cartons * m2c).toFixed(4), isNew: pendingItems.includes(item) });
         } else {
           const code = (row.querySelector('.in-new-code')?.value || '').trim();
           const name = (row.querySelector('.in-new-name')?.value || '').trim();
           const size = (row.querySelector('.in-new-size')?.value || '').trim().replace(/\*/g, '×');
-          const m2c = parseFloat(row.querySelector('.in-m2c')?.value) || 0;
-          if (!code || !name) {
-            toast('برای کالای جدید کد و نام الزامی است');
-            hasError = true;
-            return;
+          const m2c = parseFloat(numFa(row.querySelector('.in-m2c')?.value || '0')) || 0;
+          const grade = (row.querySelector('.in-grade')?.value || '').trim();
+          if (!code || !name) { errors.push('کد و نام کالای جدید در ردیف ' + (idx + 1) + ' الزامی است'); return; }
+          if (!(m2c > 0)) { errors.push('متراژ هر کارتن کالای جدید در ردیف ' + (idx + 1) + ' الزامی است'); return; }
+          if (state.items.some(i => String(i.code) === code) || pendingItems.some(i => String(i.code) === code)) {
+            errors.push('کد کالا تکراری است: ' + code); return;
           }
-          if (m2c <= 0) {
-            toast('متراژ هر کارتن برای کالای جدید الزامی است');
-            hasError = true;
-            return;
-          }
-          const m2 = cartons * m2c;
-          const newItem = {
-            id: uid(), code, name, size, grade: '',
-            stockM2: m2, m2PerCarton: m2c, cartonsPerPallet: 0, weightPerCarton: 0,
+          const item = {
+            id: uid(), code, name, size, grade,
+            stockM2: 0, m2PerCarton: m2c, cartonsPerPallet: 0, weightPerCarton: 0,
             location: '', description: supplier || notes, brand: getBrand(supplier || notes)
           };
-          state.items.push(newItem);
-          lines.push({ itemId: newItem.id, code, name, size, grade: newItem.grade || '', cartons, m2 });
+          pendingItems.push(item);
+          prepared.push({ item, cartons, m2: +(cartons * m2c).toFixed(4), isNew: true });
         }
       });
 
-      if (hasError) return;
-      if (!lines.length) { toast('حداقل یک ردیف کالا وارد کنید'); return; }
+      if (errors.length) { toast(errors[0]); return; }
+      if (!prepared.length) { toast('حداقل یک ردیف کالا با تعداد معتبر وارد کنید'); return; }
+
+      // Apply only after every row has passed validation (atomic stock update).
+      pendingItems.forEach(i => state.items.push(i));
+      const lines = prepared.map(p => {
+        p.item.stockM2 = +((Number(p.item.stockM2) || 0) + p.m2).toFixed(4);
+        return { itemId: p.item.id, code: p.item.code, name: p.item.name, size: p.item.size, grade: p.item.grade || '', cartons: p.cartons, m2: p.m2 };
+      });
 
       const rec = {
         id: uid(), no: no || ('IN-' + Date.now().toString(36).toUpperCase()),
@@ -1299,7 +1320,6 @@
       if (!state.incomings) state.incomings = [];
       state.incomings.unshift(rec);
       if (rec.driver) { state.book = state.book || { drivers: {}, colleagues: {} }; state.book.drivers[String(rec.driver).trim()] = state.book.drivers[String(rec.driver).trim()] || { phone: '' }; }
-      setTimeout(() => printIncoming(rec), 300);
       saveState();
 
       document.getElementById('inNo').value = '';
@@ -1310,6 +1330,7 @@
       renderIncomings();
       renderInventory();
       toast('حواله ورودی ثبت شد — موجودی افزایش یافت');
+      setTimeout(() => printIncoming(rec), 300);
     }
 
     function renderIncomings() {
@@ -1335,18 +1356,29 @@
     }
 
     function deleteIncoming(id) {
-      if (!confirm('حذف حواله ورودی و کم کردن از موجودی؟')) return;
+      if (!confirm('حذف حواله ورودی و کم کردن مقدار آن از موجودی؟')) return;
       const rec = (state.incomings || []).find(r => r.id === id);
       if (!rec) return;
+      // Do not silently clamp stock to zero: that would hide an inconsistent stock ledger.
+      const deductions = new Map();
+      for (const l of (rec.items || [])) {
+        if (!state.items.some(i => i.id === l.itemId)) { toast('یکی از کالاهای این حواله حذف شده؛ ابتدا سوابق را بررسی کنید'); return; }
+        deductions.set(l.itemId, (deductions.get(l.itemId) || 0) + (Number(l.m2) || 0));
+      }
+      for (const [itemId, amount] of deductions) {
+        const item = state.items.find(i => i.id === itemId);
+        if ((Number(item.stockM2) || 0) + 0.0001 < amount) {
+          toast('موجودی فعلی برای حذف این ورودی کافی نیست؛ ابتدا حواله‌های خروجی مرتبط را بررسی کنید');
+          return;
+        }
+      }
       rec.items.forEach(l => {
         const item = state.items.find(i => i.id === l.itemId);
-        if (item) item.stockM2 = Math.max(0, (item.stockM2 || 0) - (l.m2 || 0));
+        item.stockM2 = +((Number(item.stockM2) || 0) - (Number(l.m2) || 0)).toFixed(4);
       });
       state.incomings = state.incomings.filter(r => r.id !== id);
-      saveState();
-      renderIncomings();
-      renderInventory();
-      toast('حذف شد');
+      saveState(); renderIncomings(); renderInventory();
+      toast('حواله ورودی حذف شد و موجودی اصلاح شد');
     }
 
 // ==================== WAYBILL ====================
@@ -1493,22 +1525,45 @@
     }
 
     function deleteWaybill(id) {
-      if (!confirm('حذف حواله؟ متراژ به موجودی برمی‌گردد.')) return;
       const wb = state.waybills.find(w => w.id === id);
       if (!wb) return;
+      if (wb.kind !== 'return') {
+        const linkedReturns = (state.waybills || []).some(w => w.kind === 'return' && w.returnOf === wb.id) ||
+          (state.returns || []).some(r => String(r.refNo) === String(wb.no));
+        if (linkedReturns) {
+          toast('این حواله برگشتی ثبت‌شده دارد؛ ابتدا برگشتی‌های وابسته را بررسی و حذف کنید');
+          return;
+        }
+      } else {
+        for (const l of (wb.items || [])) {
+          const it = state.items.find(i => i.id === l.itemId);
+          const m2 = (Number(l.cartons) || 0) * (Number(it?.m2PerCarton) || 0);
+          if (!it || (Number(it.stockM2) || 0) + 0.0001 < m2) {
+            toast('موجودی فعلی برای حذف این برگشتی کافی نیست؛ حذف متوقف شد تا موجودی منفی نشود');
+            return;
+          }
+        }
+      }
+      if (!confirm(wb.kind === 'return' ? 'حذف برگشتی؟ مقدار آن از موجودی کم می‌شود.' : 'حذف حواله؟ متراژ به موجودی برمی‌گردد.')) return;
       wb.items.forEach(l => {
         const item = state.items.find(i => i.id === l.itemId);
-        if (item) item.stockM2 += l.cartons * (item.m2PerCarton || 0);
+        if (!item) return;
+        const m2 = (Number(l.cartons) || 0) * (Number(item.m2PerCarton) || 0);
+        item.stockM2 = +(Number(item.stockM2 || 0) + (wb.kind === 'return' ? -m2 : m2)).toFixed(4);
       });
       state.waybills = state.waybills.filter(w => w.id !== id);
-      saveState();
-      renderAll();
-      toast('حواله حذف شد و موجودی برگشت');
+      saveState(); renderAll();
+      toast(wb.kind === 'return' ? 'برگشتی حذف شد و موجودی اصلاح شد' : 'حواله حذف شد و موجودی برگشت');
     }
 
     function editWaybillLines(id) {
       const wb = state.waybills.find(w => w.id === id);
       if (!wb || wb.kind === 'return') return;
+      if ((state.waybills || []).some(w => w.kind === 'return' && w.returnOf === wb.id) ||
+          (state.returns || []).some(r => String(r.refNo) === String(wb.no))) {
+        toast('این حواله برگشتی دارد؛ برای حفظ ارتباط اسناد، ابتدا برگشتی‌های آن را بررسی کنید');
+        return;
+      }
       const ov = document.createElement('div');
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100005;display:flex;align-items:flex-end;justify-content:center';
       const rowsHtml = (wb.items || []).map((l, idx) => {
@@ -1516,20 +1571,75 @@
         return '<div class="wl" data-idx="' + idx + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px"><input class="wl-item" list="wlItems" value="' + esc(it.code ? itemLabel(it) : '') + '" style="flex:2" /><input class="wl-c" type="number" min="0" step="0.01" value="' + l.cartons + '" style="width:90px" /></div>';
       }).join('');
       const opts = state.items.map(i => '<option value="' + esc(itemLabel(i)) + '"></option>').join('');
-      ov.innerHTML = '<div style="background:#fff;border-radius:18px 18px 0 0;padding:16px;width:100%;max-width:560px;max-height:90vh;overflow:auto;direction:rtl"><div style="font-weight:700;color:#1b2a4a;font-size:16px">ویرایش کالاهای حواله ' + esc(wb.no) + '</div><div style="font-size:12px;color:#555;margin:4px 0 8px">کالا یا تعداد را تغییر دهید. موجودی به‌صورت خودکار اصلاح می‌شود.</div>' + rowsHtml + '<datalist id="wlItems">' + opts + '</datalist><div style="display:flex;gap:8px;margin-top:10px"><button id="wlSave" class="btn btn-primary" style="flex:1">ذخیره</button><button id="wlCancel" class="btn btn-outline" style="flex:1">انصراف</button></div></div>';
+      ov.innerHTML = '<div style="background:#fff;border-radius:18px 18px 0 0;padding:16px;width:100%;max-width:560px;max-height:90vh;overflow:auto;direction:rtl"><div style="font-weight:700;color:#1b2a4a;font-size:16px">ویرایش کالاهای حواله ' + esc(wb.no) + '</div><div style="font-size:12px;color:#555;margin:4px 0 8px">موجودی پس از بررسی کامل اصلاح می‌شود؛ مقدار بارگیری‌شده حفظ خواهد شد.</div>' + rowsHtml + '<datalist id="wlItems">' + opts + '</datalist><div style="display:flex;gap:8px;margin-top:10px"><button id="wlSave" class="btn btn-primary" style="flex:1">ذخیره</button><button id="wlCancel" class="btn btn-outline" style="flex:1">انصراف</button></div></div>';
       document.body.appendChild(ov);
       ov.querySelector('#wlCancel').onclick = () => ov.remove();
+      ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
       ov.querySelector('#wlSave').onclick = () => {
         const newLines = [];
+        let invalid = false;
         ov.querySelectorAll('.wl').forEach(row => {
-          const id2 = itemIdFromLabel(row.querySelector('.wl-item').value);
-          const c = parseFloat(String(row.querySelector('.wl-c').value).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))) || 0;
-          if (id2 && c > 0) newLines.push({ itemId: id2, cartons: c, loaded: 0, value: 0 });
+          const itemId = itemIdFromLabel(row.querySelector('.wl-item').value);
+          const cartons = parseFloat(toEnNum(row.querySelector('.wl-c').value || '0')) || 0;
+          if (!itemId && row.querySelector('.wl-item').value.trim()) { invalid = true; }
+          if (cartons < 0 || !Number.isFinite(cartons)) invalid = true;
+          if (itemId && cartons > 0) newLines.push({ itemId, cartons, loaded: 0, value: 0 });
         });
+        if (invalid) { toast('کالا یا تعداد یکی از ردیف‌ها معتبر نیست'); return; }
         if (!newLines.length) { toast('حداقل یک کالا با تعداد لازم است'); return; }
-        (wb.items || []).forEach(l => { const it = state.items.find(i => i.id === l.itemId); if (it) it.stockM2 = +(it.stockM2 + l.cartons * (it.m2PerCarton || 0)).toFixed(4); });
-        newLines.forEach(l => { const it = state.items.find(i => i.id === l.itemId); l.value = l.cartons * (it.m2PerCarton || 0) * (it.valuePerM2 || 0); if (it) it.stockM2 = +(it.stockM2 - l.cartons * (it.m2PerCarton || 0)).toFixed(4); });
-        wb.items = newLines; saveState(); ov.remove(); renderAll(); toast('کالاهای حواله به‌روز شد');
+
+        const projected = new Map();
+        state.items.forEach(it => projected.set(it.id, Number(it.stockM2) || 0));
+        // Return the old issue quantities to a temporary balance first.
+        (wb.items || []).forEach(l => {
+          const it = state.items.find(i => i.id === l.itemId);
+          if (it) projected.set(it.id, (projected.get(it.id) || 0) + l.cartons * (Number(it.m2PerCarton) || 0));
+        });
+
+        // Preserve already-loaded quantities for unchanged item lines.
+        const oldLoaded = new Map();
+        (wb.items || []).forEach(l => {
+          const key = l.itemId;
+          oldLoaded.set(key, (oldLoaded.get(key) || 0) + (Number(l.loaded) || 0));
+        });
+        const totals = new Map();
+        newLines.forEach(l => totals.set(l.itemId, (totals.get(l.itemId) || 0) + l.cartons));
+        for (const [itemId, loaded] of oldLoaded) {
+          if ((totals.get(itemId) || 0) + 0.0001 < loaded) {
+            toast('تعداد کالای ' + (state.items.find(i => i.id === itemId)?.name || '') + ' از مقدار بارگیری‌شده کمتر نمی‌تواند باشد');
+            return;
+          }
+        }
+        for (const l of newLines) {
+          const it = state.items.find(i => i.id === l.itemId);
+          if (!it || !(Number(it.m2PerCarton) > 0)) { toast('اطلاعات متراژ کالا کامل نیست'); return; }
+        }
+        for (const [itemId, cartons] of totals) {
+          const it = state.items.find(i => i.id === itemId);
+          const needed = cartons * (Number(it.m2PerCarton) || 0);
+          const available = projected.get(itemId) || 0;
+          if (needed > available + 0.001) {
+            toast('موجودی کافی نیست برای ' + it.name + '؛ موجود: ' + faNum(available) + ' متر');
+            return;
+          }
+        }
+
+        const loadedLeft = new Map(oldLoaded);
+        newLines.forEach(l => {
+          const it = state.items.find(i => i.id === l.itemId);
+          const left = loadedLeft.get(l.itemId) || 0;
+          l.loaded = Math.min(l.cartons, left);
+          loadedLeft.set(l.itemId, Math.max(0, left - l.loaded));
+          l.value = l.cartons * (Number(it.m2PerCarton) || 0) * (Number(it.valuePerM2) || 0);
+        });
+        // Apply the validated transaction.
+        state.items.forEach(it => { if (projected.has(it.id)) it.stockM2 = +projected.get(it.id).toFixed(4); });
+        newLines.forEach(l => {
+          const it = state.items.find(i => i.id === l.itemId);
+          it.stockM2 = +(it.stockM2 - l.cartons * it.m2PerCarton).toFixed(4);
+        });
+        wb.items = newLines;
+        saveState(); ov.remove(); renderAll(); toast('کالاهای حواله به‌روز شد');
       };
     }
 
@@ -1554,26 +1664,58 @@
 
     function openReturn(id) {
       const wb = state.waybills.find(w => w.id === id);
-      if (!wb) return;
-      const lines = (wb.items || []).map((l, idx) => { const it = state.items.find(i => i.id === l.itemId) || {};
-        return '<div style="display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #eee"><div style="flex:1">' + esc(it.code || '') + ' · ' + esc(it.name || '') + ' · ' + esc(it.size || '') + ' (فروش: ' + faNum(l.cartons, 0) + ' کارتن)</div><input type="number" min="0" step="0.01" data-idx="' + idx + '" value="0" style="width:90px" /></div>'; }).join('');
+      if (!wb || wb.kind === 'return') return;
+      const already = new Map();
+      (state.waybills || []).filter(w => w.kind === 'return' && w.returnOf === wb.id).forEach(r => {
+        (r.items || []).forEach(l => already.set(l.itemId, (already.get(l.itemId) || 0) + (Number(l.cartons) || 0)));
+      });
+      (state.returns || []).filter(r => String(r.refNo) === String(wb.no)).forEach(r => {
+        already.set(r.itemId, (already.get(r.itemId) || 0) + (Number(r.cartons) || 0));
+      });
+      const lines = (wb.items || []).map((l, idx) => {
+        const it = state.items.find(i => i.id === l.itemId) || {};
+        const remaining = Math.max(0, (Number(l.cartons) || 0) - (already.get(l.itemId) || 0));
+        return '<div style="display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #eee"><div style="flex:1">' + esc(it.code || '') + ' · ' + esc(it.name || '') + ' · ' + esc(it.size || '') + ' (فروش: ' + faNum(l.cartons, 2) + '، قابل برگشت: ' + faNum(remaining, 2) + ' کارتن)</div><input type="number" min="0" max="' + remaining + '" step="0.01" data-idx="' + idx + '" value="0" style="width:90px" /></div>';
+      }).join('');
       const ov = document.createElement('div');
       ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100004;display:flex;align-items:flex-end;justify-content:center';
-      ov.innerHTML = '<div style="background:#fff;border-radius:18px 18px 0 0;padding:16px;width:100%;max-width:560px;max-height:90vh;overflow:auto;direction:rtl"><div style="font-weight:700;color:#1b2a4a;font-size:16px">برگشتی از حواله ' + esc(wb.no) + '</div><div style="font-size:12px;color:#555;margin:4px 0 8px">تعداد برگشتی را به کارتن وارد کنید؛ به موجودی برمی‌گردد.</div>' + lines +
+      ov.innerHTML = '<div style="background:#fff;border-radius:18px 18px 0 0;padding:16px;width:100%;max-width:560px;max-height:90vh;overflow:auto;direction:rtl"><div style="font-weight:700;color:#1b2a4a;font-size:16px">برگشتی از حواله ' + esc(wb.no) + '</div><div style="font-size:12px;color:#555;margin:4px 0 8px">مجموع برگشتی‌ها نمی‌تواند از مقدار حواله بیشتر شود.</div>' + lines +
         '<label style="margin-top:8px">دلیل برگشت</label><input id="rtReason" placeholder="مثلاً ترک، رنگ متفاوت" /><div style="display:flex;gap:8px;margin-top:12px"><button id="rtSave" class="btn btn-primary" style="flex:1">ثبت برگشتی</button><button id="rtCancel" class="btn btn-outline" style="flex:1">انصراف</button></div></div>';
       document.body.appendChild(ov);
       ov.querySelector('#rtCancel').onclick = () => ov.remove();
+      ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
       ov.querySelector('#rtSave').onclick = () => {
         const reason = (ov.querySelector('#rtReason').value || '').trim();
         const items = [];
+        const totals = new Map();
+        let invalid = false;
         ov.querySelectorAll('input[data-idx]').forEach(inp => {
-          const n = parseFloat(String(inp.value).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d))) || 0;
-          if (n > 0) { const l = wb.items[Number(inp.dataset.idx)]; items.push({ itemId: l.itemId, cartons: n, loaded: 0, value: 0 }); }
+          const n = parseFloat(toEnNum(inp.value || '0')) || 0;
+          const l = wb.items[Number(inp.dataset.idx)];
+          if (!Number.isFinite(n) || n < 0 || n > (Number(l.cartons) || 0)) invalid = true;
+          if (n > 0) {
+            items.push({ itemId: l.itemId, cartons: n, loaded: 0, value: 0 });
+            totals.set(l.itemId, (totals.get(l.itemId) || 0) + n);
+          }
         });
+        if (invalid) { toast('تعداد برگشتی معتبر نیست'); return; }
         if (!items.length) { toast('تعداد برگشتی را وارد کنید'); return; }
+        for (const [itemId, n] of totals) {
+          const sold = (wb.items || []).filter(l => l.itemId === itemId).reduce((a,l) => a + (Number(l.cartons) || 0), 0);
+          const returnedWaybills = (state.waybills || []).filter(w => w.kind === 'return' && w.returnOf === wb.id)
+            .flatMap(w => w.items || []).filter(l => l.itemId === itemId).reduce((a,l) => a + (Number(l.cartons) || 0), 0);
+          const returnedLegacy = (state.returns || []).filter(r => String(r.refNo) === String(wb.no) && r.itemId === itemId)
+            .reduce((a,r) => a + (Number(r.cartons) || 0), 0);
+          if (returnedWaybills + returnedLegacy + n > sold + 0.0001) {
+            toast('مقدار برگشتی از مقدار حواله بیشتر است'); return;
+          }
+        }
         const count = state.waybills.filter(w => w.kind === 'return' && w.returnOf === wb.id).length + 1;
         const ret = { id: uid(), no: wb.no + '-R' + count, date: todayISO(), time: nowTime(), customer: wb.customer, phone: wb.phone, city: wb.city, colleague: wb.colleague, driverName: '', driverPhone: '', driverInfo: '', kind: 'return', returnOf: wb.id, reason, items, pickups: [], signCustomer: '', signatures: {} };
-        items.forEach(l => { const it = state.items.find(i => i.id === l.itemId); if (it) it.stockM2 = +(it.stockM2 + l.cartons * (it.m2PerCarton || 0)).toFixed(4); });
+        items.forEach(l => {
+          const it = state.items.find(i => i.id === l.itemId);
+          if (it) it.stockM2 = +((Number(it.stockM2) || 0) + l.cartons * (Number(it.m2PerCarton) || 0)).toFixed(4);
+        });
         state.waybills.unshift(ret); saveState(); ov.remove(); renderAll(); toast('برگشتی ثبت شد و به موجودی برگشت');
       };
     }
@@ -1697,22 +1839,22 @@
     function confirmLoading() {
       const wb = state.waybills.find(w => w.id === currentLoadWaybillId);
       if (!wb) return;
+      const updates = [];
+      let invalid = false;
       document.querySelectorAll('.load-input').forEach(inp => {
-        const idx = parseInt(inp.dataset.idx);
-        const val = parseInt(inp.value) || 0;
-        if (val > 0 && wb.items[idx]) {
-          const remain = wb.items[idx].cartons - (wb.items[idx].loaded || 0);
-          wb.items[idx].loaded = (wb.items[idx].loaded || 0) + Math.min(val, remain);
-        }
+        const idx = parseInt(inp.dataset.idx, 10);
+        const val = parseFloat(toEnNum(inp.value || '0')) || 0;
+        const line = wb.items[idx];
+        if (!line || !Number.isFinite(val) || val < 0) { invalid = true; return; }
+        const remain = (Number(line.cartons) || 0) - (Number(line.loaded) || 0);
+        if (val > remain + 0.0001) { invalid = true; return; }
+        if (val > 0) updates.push({ line, val });
       });
-      saveState();
-      closeLoadModal();
-      renderAll();
-      toast('بارگیری ثبت شد');
-      // offer receipt
-      if (confirm('رسید بارگیری چاپ شود؟')) {
-        printReceipt(wb.id, true);
-      }
+      if (invalid) { toast('مقدار بارگیری نامعتبر است یا از مانده بیشتر است'); return; }
+      if (!updates.length) { toast('مقدار بارگیری را وارد کنید'); return; }
+      updates.forEach(x => { x.line.loaded = +((Number(x.line.loaded) || 0) + x.val).toFixed(4); });
+      saveState(); closeLoadModal(); renderAll(); toast('بارگیری ثبت شد');
+      if (confirm('رسید بارگیری چاپ شود؟')) printReceipt(wb.id, true);
     }
 
     // ==================== KARDEX ====================
@@ -1932,19 +2074,33 @@
       if (!out) { toast('حواله خروجی با این شماره پیدا نشد'); return; }
       const it = state.items.find(i => String(i.code) === code);
       if (!it) { toast('کد کالا در موجودی نیست'); return; }
-      if (!(qty > 0)) { toast('تعداد را وارد کنید'); return; }
+      if (!(qty > 0) || !Number.isFinite(qty)) { toast('تعداد را وارد کنید'); return; }
+      if (!(Number(it.m2PerCarton) > 0)) { toast('متراژ هر کارتن کالا تعریف نشده است'); return; }
       const cartons = unit === 'm2' ? qty / it.m2PerCarton : unit === 'sheet' ? (qty * sheetM2(it.size)) / it.m2PerCarton : qty;
-      const m2 = +(cartons * (it.m2PerCarton || 0)).toFixed(4);
+      if (!(cartons > 0) || !Number.isFinite(cartons)) { toast('مقدار برگشتی معتبر نیست'); return; }
+      const sold = (out.items || []).filter(l => l.itemId === it.id).reduce((a,l) => a + (Number(l.cartons) || 0), 0);
+      const returnedWaybills = (state.waybills || []).filter(w => w.kind === 'return' && w.returnOf === out.id)
+        .flatMap(w => w.items || []).filter(l => l.itemId === it.id).reduce((a,l) => a + (Number(l.cartons) || 0), 0);
+      const returnedLegacy = (state.returns || []).filter(r => String(r.refNo) === ref && r.itemId === it.id).reduce((a,r) => a + (Number(r.cartons) || 0), 0);
+      if (returnedWaybills + returnedLegacy + cartons > sold + 0.0001) {
+        toast('مقدار برگشتی از مقدار این کالا در حواله بیشتر است'); return;
+      }
+      const m2 = +(cartons * it.m2PerCarton).toFixed(4);
       state.returns = state.returns || [];
       state.returns.unshift({ id: uid(), date: todayISO(), refNo: ref, customer: out.customer || '', itemId: it.id, code: it.code, name: it.name, size: it.size, cartons: +cartons.toFixed(4), m2, reason: (document.getElementById('retReason')?.value || '').trim() });
-      it.stockM2 = +(it.stockM2 + m2).toFixed(4);
+      it.stockM2 = +((Number(it.stockM2) || 0) + m2).toFixed(4);
       saveState(); renderReturns(); renderAll(); toast('برگشتی ثبت شد و به موجودی برگشت');
     }
     function deleteReturn(id) {
       const r = (state.returns || []).find(x => x.id === id); if (!r) return;
       if (!confirm('این برگشتی حذف شود؟ موجودی دوباره کم می‌شود.')) return;
       const it = state.items.find(i => i.id === r.itemId);
-      if (it) it.stockM2 = +(it.stockM2 - r.m2).toFixed(4);
+      if (!it) { toast('کالای این برگشتی پیدا نشد؛ سوابق را بررسی کنید'); return; }
+      if ((Number(it.stockM2) || 0) + 0.0001 < (Number(r.m2) || 0)) {
+        toast('موجودی فعلی برای حذف این برگشتی کافی نیست؛ حذف متوقف شد تا موجودی منفی نشود');
+        return;
+      }
+      it.stockM2 = +((Number(it.stockM2) || 0) - (Number(r.m2) || 0)).toFixed(4);
       state.returns = state.returns.filter(x => x.id !== id);
       saveState(); renderReturns(); renderAll();
     }
@@ -3338,27 +3494,25 @@
     function restoreJSON(e) {
       const file = e.target.files[0];
       if (!file) return;
-      if (!confirm('بازیابی، تمام داده‌های فعلی را جایگزین می‌کند. ادامه؟')) {
-        e.target.value = '';
-        return;
+      if (!confirm('بازیابی، تمام داده‌های فعلی را جایگزین می‌کند. قبل از ادامه یک نسخه پشتیبان فعلی بگیرید. ادامه؟')) {
+        e.target.value = ''; return;
       }
       const reader = new FileReader();
       reader.onload = function (ev) {
         try {
           const parsed = JSON.parse(ev.target.result);
           if (!parsed || !Array.isArray(parsed.items) || !Array.isArray(parsed.waybills)) {
-            toast('فایل نامعتبر است');
-            return;
+            toast('فایل نامعتبر است'); return;
           }
+          const currentRaw = localStorage.getItem(STORAGE_KEY);
+          if (currentRaw) localStorage.setItem(STORAGE_KEY + '_pre_restore_' + Date.now(), currentRaw);
           state = parsed;
-          if (!state.settings) state.settings = { ...DEFAULT_SETTINGS };
-          saveState();
-          renderAll();
-          loadSettingsToForm();
-          toast('بازیابی موفق');
-        } catch (err) {
-          toast('خطا در خواندن فایل');
-        }
+          state.settings = { ...DEFAULT_SETTINGS, ...(state.settings || {}) };
+          if (!Array.isArray(state.incomings)) state.incomings = [];
+          if (!Array.isArray(state.returns)) state.returns = [];
+          saveState(); renderAll(); loadSettingsToForm();
+          toast('بازیابی موفق؛ نسخه قبلی نیز در حافظه مرورگر نگهداری شد');
+        } catch (err) { toast('خطا در بازیابی: ' + err.message); }
         e.target.value = '';
       };
       reader.readAsText(file);
@@ -3431,7 +3585,6 @@
     updateWbDateLabel();
     loadState();
     renderAll();
-    applyFont();
     applyFont();
     hideWarehouseSig();
     checkBackupReminder();
