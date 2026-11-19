@@ -270,7 +270,7 @@
       <button id="cloudPushBtn" type="button" onclick="cloudPush()">ارسال نسخه فعلی به سرور</button>
       <button id="cloudLogoutBtn" type="button" onclick="cloudLogout()">خروج</button>
     </div>
-    <div id="cloudStatus" role="status">اطلاعات فعلاً روی همین گوشی ذخیره می‌شود. برای اتصال، تنظیمات عمومی Supabase باید در cloud-config.js وارد شود.</div>
+    <div id="cloudStatus" role="status">در حال آماده‌سازی اتصال آنلاین انبار ستاره...</div>
   </section>
 
   <div class="header">
@@ -3470,6 +3470,7 @@
         return false;
       }
       cloudClient=window.supabase.createClient(cfg.url,cfg.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+      cloudStatus('تنظیمات اتصال آنلاین بارگذاری شد. برای ورود، ایمیل و رمز مدیر را وارد کن.');
       cloudClient.auth.getSession().then(({data,error})=>{
         if(error){cloudStatus('خطای بررسی نشست: '+error.message,true);return;}
         if(data.session) cloudVerifyMembership();
