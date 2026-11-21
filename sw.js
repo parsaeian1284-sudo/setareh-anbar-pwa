@@ -1,5 +1,5 @@
-// Setareh PWA service worker: app shell + runtime cache for same-origin and CDN assets.
-const CACHE = 'setareh-offline-34';
+// Offline-first service worker for Setareh warehouse PWA.
+const CACHE = 'setareh-stage2-1';
 const APP_SHELL = [
   './',
   './index.html',
@@ -33,12 +33,12 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  const sameOrigin = url.origin === self.location.origin;
-  const isShell = sameOrigin && APP_SHELL.some(
+  if (url.origin !== self.location.origin) return;
+
+  const isShell = APP_SHELL.some(
     (path) => new URL(path, self.location.href).pathname === url.pathname
   );
 
-  // App shell: return cached copy immediately and refresh it in the background.
   if (isShell) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE);
@@ -47,37 +47,36 @@ self.addEventListener('fetch', (event) => {
         if (response && response.ok) cache.put(request, response.clone());
         return response;
       }).catch(() => null);
+
       if (cached) {
         event.waitUntil(update);
         return cached;
       }
+
       const fresh = await update;
       return fresh || new Response(
-        'برای اولین بار برنامه را با اینترنت باز کنید تا فایل‌های لازم ذخیره شوند.',
+        'برنامه در حالت آفلاین در دسترس نیست. یک بار با اینترنت بازش کنید.',
         { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
       );
     })());
     return;
   }
 
-  // Cache successful same-origin resources and CDN scripts/styles after first online use.
-  // This supports offline access to the app shell and previously loaded libraries.
-  event.respondWith((async () => {
-    const cache = await caches.open(CACHE);
-    try {
-      const response = await fetch(request);
-      if (response && (response.ok || response.type === 'opaque')) {
-        event.waitUntil(cache.put(request, response.clone()));
+  event.respondWith(
+    fetch(request).then((response) => {
+      if (response && response.ok) {
+        const copy = response.clone();
+        event.waitUntil(caches.open(CACHE).then((cache) => cache.put(request, copy)));
       }
       return response;
-    } catch (error) {
-      const cached = await cache.match(request);
+    }).catch(async () => {
+      const cached = await caches.match(request);
       if (cached) return cached;
       if (request.mode === 'navigate') {
-        return (await cache.match('./index.html')) ||
-          new Response('آفلاین هستید؛ این صفحه قبلاً ذخیره نشده است.', { status: 503 });
+        return (await caches.match('./index.html')) ||
+          new Response('آفلاین هستید.', { status: 503 });
       }
       return new Response('', { status: 504 });
-    }
-  })());
+    })
+  );
 });

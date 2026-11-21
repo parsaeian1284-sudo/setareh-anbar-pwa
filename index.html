@@ -3610,7 +3610,14 @@
       if(!remote||!Array.isArray(remote.items)||!Array.isArray(remote.waybills)){
         cloudStatus('ساختار اطلاعات سرور با برنامه سازگار نیست؛ هیچ داده‌ای تغییر نکرد.',true);return;
       }
-      state=remote;
+      try{
+        const backupKey='setareh_backup_before_pull_'+new Date().toISOString().replace(/[:.]/g,'-');
+        localStorage.setItem(backupKey,JSON.stringify(state));
+      }catch(e){cloudStatus('پشتیبان محلی ساخته نشد؛ دریافت لغو شد: '+e.message,true);return;}
+      const fixedRemote=Object.assign({items:[],waybills:[],incomings:[],cash:[],shifts:[],dayNotes:{},shiftNotes:{}},remote);
+      fixedRemote.settings=Object.assign({},DEFAULT_SETTINGS,remote.settings||{});
+      fixedRemote.settings.minStock=Object.assign({},(DEFAULT_SETTINGS&&DEFAULT_SETTINGS.minStock)||{},fixedRemote.settings.minStock||{});
+      state=fixedRemote;
       saveState();
       renderAll();
       if(typeof refreshItemList==='function')refreshItemList();
@@ -3633,13 +3640,8 @@
         brand:String(item.brand||''),
         updated_at:new Date().toISOString()
       }));
-      const {error:deleteInventoryError}=await cloudClient.from('warehouse_inventory')
-        .delete().eq('warehouse_id',CLOUD_WAREHOUSE_ID);
-      if(deleteInventoryError){cloudStatus('ارسال موجودی ناموفق؛ حذف ردیف‌های قبلی انجام نشد: '+deleteInventoryError.message,true);return;}
-      if(inventoryRows.length){
-        const {error:insertInventoryError}=await cloudClient.from('warehouse_inventory').insert(inventoryRows);
-        if(insertInventoryError){cloudStatus('ارسال فهرست موجودی ناموفق: '+insertInventoryError.message,true);return;}
-      }
+      const {error:publishError}=await cloudClient.rpc('publish_inventory',{p_warehouse_id:CLOUD_WAREHOUSE_ID,p_rows:inventoryRows});
+      if(publishError){cloudStatus('ارسال موجودی ناموفق؛ هیچ تغییری روی سرور اعمال نشد: '+publishError.message,true);return;}
       const {data:existing,error:readError}=await cloudClient.from('warehouse_private_state')
         .select('warehouse_id').eq('warehouse_id',CLOUD_WAREHOUSE_ID).maybeSingle();
       if(readError){cloudStatus('بررسی وضعیت سرور ناموفق: '+readError.message,true);return;}
