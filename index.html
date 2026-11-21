@@ -3669,6 +3669,14 @@
     // ==================== INIT ====================
     document.getElementById('wbDate').value = todayISO();
     updateWbDateLabel();
+    (function(){
+      const cfg = window.WAREHOUSE_CLOUD_CONFIG || {};
+      const hasKey = typeof cfg.anonKey === 'string' && cfg.anonKey.trim() !== '' && !/PASTE_/.test(cfg.anonKey);
+      if (!hasKey) {
+        document.body.classList.add('manager-authenticated');
+        const p = document.getElementById('cloudPanel'); if (p) p.style.display = 'none';
+      }
+    })();
     loadState();
     renderAll();
     applyFont();
