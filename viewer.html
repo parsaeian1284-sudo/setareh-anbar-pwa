@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>موجودی آنلاین انبار یزد</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="./cloud-config.js"></script>
+<style>
+ body{font-family:Vazirmatn,Tahoma,Arial,sans-serif;margin:0;background:#f5f7fa;color:#222;font-size:14px}
+ .top{background:#7d2519;color:#e9c46a;padding:10px 12px 8px;border-bottom:3px solid #c9a227}
+ .r1{display:flex;align-items:center;justify-content:space-between;gap:8px}
+ .ttl{text-align:right}
+ .ttl .l1{font-size:20px;font-weight:700;color:#e9c46a}
+ .ttl .l2{font-size:12px;color:#e9c46a;margin-top:4px}
+ .upd{font-size:11px;color:#e9c46a;line-height:1.5;text-align:left}
+ .agency{text-align:center;margin-top:6px;border-top:1px solid #c9a227;padding-top:6px}
+ .agency .a1{font-size:18px;font-weight:700;color:#e9c46a}
+ .agency .a2{font-size:15px;color:#e9c46a;margin-top:2px}
+ .wrap{padding:10px}
+ input,select{width:100%;box-sizing:border-box;padding:9px;border:1px solid #ccc;border-radius:8px;font:inherit;background:#fff;margin-bottom:6px}
+ button{padding:10px;border:0;border-radius:8px;background:#7d2519;color:#fff;font:inherit;width:100%}
+ .bar{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+ .bar .full{grid-column:1/3}
+ .size{background:#f3dcd6;color:#5c1a10;font-weight:700;padding:6px 8px;margin-top:8px;border-radius:6px;font-size:13px}
+ table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}
+ th{background:#9b3a2c;color:#fff;padding:6px 3px;font-weight:700;font-size:11.5px}
+ td{border-bottom:1px solid #e5e7eb;padding:6px 3px;text-align:center}
+ td.name{text-align:right}
+ td.name small{display:block;color:#9a9a9a;font-size:10.5px}
+ td.stk{font-weight:700}
+ .msg{padding:10px;background:#fff;border:1px solid #e5e7eb;border-radius:8px;margin-top:10px}
+ .err{color:#991b1b}
+ .note{font-size:11.5px;color:#666;margin-top:10px}
+</style></head><body>
+<div class="top">
+ <div class="r1">
+  <div class="ttl"><div class="l1">موجودی آنلاین انبار یزد</div><div class="l2">کاشی ستاره میبد، کاشی حافظ شیراز</div></div>
+  <div class="upd" id="upd"></div>
+ </div>
+ <div class="agency"><div class="a1">نماینده انحصاری استان یزد</div><div class="a2">خالقیه</div></div>
+</div>
+<div class="wrap">
+ <div id="login" style="display:none">
+  <div class="msg">
+   <div style="font-weight:700;margin-bottom:8px">ورود</div>
+   <input id="email" type="email" placeholder="ایمیل" autocomplete="username">
+   <input id="pass" type="password" placeholder="رمز عبور" autocomplete="current-password">
+   <button id="btnLogin">ورود</button>
+   <div id="loginErr" class="err" style="margin-top:8px"></div>
+  </div>
+ </div>
+ <div id="app" style="display:none">
+  <div class="bar">
+   <input class="full" id="q" placeholder="جستجوی نام یا کد طرح">
+   <select id="fSize"><option value="">همه سایزها</option></select>
+   <select id="fGrade"><option value="">همه گریدها</option></select>
+   <select id="sort">
+    <option value="name">مرتب: نام طرح</option>
+    <option value="stockDesc">مرتب: بیشترین متراژ</option>
+    <option value="stockAsc">مرتب: کمترین متراژ</option>
+   </select>
+   <button id="btnOut" style="background:#6b7280">خروج</button>
+  </div>
+  <div id="list" style="margin-top:8px"></div>
+  <div class="note">این صفحه فقط خواندنی است. اعداد از موجودی منتشر‌شده توسط مدیر می‌آیند.</div>
+ </div>
+ <div id="status" class="msg" style="display:none"></div>
+</div>
+<script>
+const CFG = window.WAREHOUSE_CLOUD_CONFIG || {};
+const WH = 'setareh';
+const configured = typeof CFG.anonKey === 'string' && CFG.anonKey.trim() !== '' && !/PASTE_/.test(CFG.anonKey);
+const $ = id => document.getElementById(id);
+const fmt = n => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+let client = null, rows = [];
+
+function show(which) {
+  $('login').style.display = which === 'login' ? '' : 'none';
+  $('app').style.display = which === 'app' ? '' : 'none';
+}
+function status(text, isErr) {
+  const s = $('status'); s.style.display = text ? '' : 'none';
+  s.textContent = text || ''; s.className = 'msg' + (isErr ? ' err' : '');
+}
+function sk(s) { const p = String(s).split('×'); return parseFloat(p[0]) * parseFloat(p[1]); }
+
+function render() {
+  const q = $('q').value.trim(), fs = $('fSize').value, fg = $('fGrade').value, so = $('sort').value;
+  let list = rows.filter(r => (!q || r.name.includes(q) || r.code.includes(q)) && (!fs || r.size === fs) && (!fg || r.grade === fg));
+  list.sort((a, b) => {
+    const z = sk(a.size) - sk(b.size); if (z) return z;
+    return so === 'name' ? a.name.localeCompare(b.name, 'fa') : so === 'stockDesc' ? b.stock - a.stock : a.stock - b.stock;
+  });
+  let html = '', last = null, body = '';
+  const table = b => `<table><thead><tr><th>کد</th><th>نام طرح</th><th>سایز</th><th>گرید</th><th>کارتن موجود</th><th>متراژ موجودی</th><th>متراژ کارتن / پالت</th></tr></thead><tbody>${b}</tbody></table>`;
+  list.forEach(r => {
+    if (r.size !== last) { if (body) html += table(body); body = ''; html += `<div class="size">سایز ${r.size}</div>`; last = r.size; }
+    const cartons = r.m2c ? Math.round(r.stock / r.m2c) : '';
+    const pallet = r.cpp ? r.cpp * r.m2c : '';
+    body += `<tr><td>${r.code.slice(-3)}</td><td class="name">${r.name}<small>${r.brand || ''}</small></td><td>${r.size}</td><td>${r.grade}</td><td>${fmt(cartons)}</td><td class="stk">${fmt(r.stock)}</td><td>${r.m2c ? fmt(r.m2c) + ' / ' + fmt(pallet) : ''}</td></tr>`;
+  });
+  if (body) html += table(body);
+  $('list').innerHTML = html || '<div class="msg">کالایی پیدا نشد.</div>';
+}
+
+async function load() {
+  status('در حال دریافت موجودی...');
+  const { data, error } = await client.from('warehouse_inventory')
+    .select('code,name,size,grade,stock_m2,m2_per_carton,cartons_per_pallet,brand,updated_at')
+    .eq('warehouse_id', WH);
+  if (error) { status('خطا در دریافت موجودی: ' + error.message, true); return; }
+  rows = (data || []).map(r => ({ code: String(r.code || ''), name: String(r.name || ''), size: String(r.size || ''), grade: String(r.grade || ''), stock: Number(r.stock_m2 || 0), m2c: Number(r.m2_per_carton || 0), cpp: Number(r.cartons_per_pallet || 0), brand: r.brand || '' }));
+  const last = (data || []).map(r => r.updated_at).filter(Boolean).sort().pop();
+  $('upd').innerHTML = last ? 'آخرین به‌روزرسانی<br>' + new Date(last).toLocaleString('fa-IR') : '';
+  [...new Set(rows.map(r => r.size))].sort((a, b) => sk(a) - sk(b)).forEach(v => $('fSize').insertAdjacentHTML('beforeend', `<option value="${v}">${v}</option>`));
+  [...new Set(rows.map(r => r.grade))].forEach(v => $('fGrade').insertAdjacentHTML('beforeend', `<option value="${v}">${v}</option>`));
+  status('');
+  show('app'); render();
+}
+
+async function init() {
+  if (!configured || typeof supabase === 'undefined') {
+    show('none'); status('این صفحه هنوز به سرور وصل نیست. کلید عمومی باید در cloud-config.js قرار گیرد.', true); return;
+  }
+  client = supabase.createClient(CFG.url, CFG.anonKey);
+  const { data } = await client.auth.getSession();
+  if (data && data.session) { await load(); } else { show('login'); }
+}
+
+$('btnLogin').onclick = async () => {
+  $('loginErr').textContent = '';
+  const { error } = await client.auth.signInWithPassword({ email: $('email').value.trim(), password: $('pass').value });
+  if (error) { $('loginErr').textContent = 'ورود ناموفق: ' + error.message; return; }
+  $('pass').value = '';
+  await load();
+};
+$('btnOut').onclick = async () => { await client.auth.signOut(); rows = []; show('login'); status(''); };
+['q', 'fSize', 'fGrade', 'sort'].forEach(id => $(id).addEventListener('input', render));
+init();
+</script>
+</body></html>
