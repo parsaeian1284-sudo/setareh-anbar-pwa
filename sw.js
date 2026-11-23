@@ -1,5 +1,5 @@
 // Offline-first service worker for Setareh warehouse PWA.
-const CACHE = 'setareh-stage2-1';
+const CACHE = 'setareh-install-fix-2';
 const APP_SHELL = [
   './',
   './index.html',

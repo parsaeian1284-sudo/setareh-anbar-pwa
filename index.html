@@ -691,7 +691,7 @@
         <label>ضخامت نوشته ردیف عنوان</label><select id="setTblHeadWeight"><option value="400">معمولی</option><option value="700" selected>پررنگ</option></select>
         <label>رنگ نوشته ردیف عنوان</label><input id="setTblHeadColor" type="color" value="#ffffff" />
         <label>رنگ زمینه ردیف عنوان</label><input id="setTblHeadBg" type="color" value="#9b3a2c" />
-        <div style="font-weight:700;margin-top:10px">رنگ‌های گزارش و سربرگ</div><label>رنگ زمینه ردیف سایز (نوار هر سایز)</label><input id="setSizeRowBg" type="color" value="#dbeafe" /><label>رنگ نوشته ردیف سایز</label><input id="setSizeRowTx" type="color" value="#1b2a4b" /><label>رنگ زمینه کادر سربرگ</label><input id="setLetterBg" type="color" value="#1b2a4b" />
+        <div style="font-weight:700;margin-top:10px">رنگ‌های گزارش و سربرگ</div><label>رنگ زمینه ردیف سایز (نوار هر سایز)</label><input id="setSizeRowBg" type="color" value="#f3dcd6" /><label>رنگ نوشته ردیف سایز</label><input id="setSizeRowTx" type="color" value="#5c1a10" /><label>رنگ زمینه کادر سربرگ</label><input id="setLetterBg" type="color" value="#7d2519" />
         <div style="font-weight:700;margin-top:10px">رنگ سربرگ‌ها (جدا از رنگ برنامه)</div><label>رنگ نوشته‌های سربرگ (بالای گزارش‌ها و رسیدها)</label><input id="setLetterColor" type="color" value="#e9c46a" />
         <button class="btn btn-outline btn-block" onclick="saveFontSettings()">اعمال فونت</button>
         <label>📱 شماره موبایل مسئول انبار</label>
@@ -861,6 +861,10 @@
           if (parsed && Array.isArray(parsed.items) && Array.isArray(parsed.waybills)) {
             state = parsed;
             if (!state.settings) state.settings = { ...DEFAULT_SETTINGS };
+    if (!state.settings.minStock) state.settings.minStock = {};
+    if (state.settings.letterBg === '#1b2a4b') state.settings.letterBg = '#7d2519';
+    if (state.settings.sizeRowBg === '#dbeafe') delete state.settings.sizeRowBg;
+    if (state.settings.sizeRowTx === '#1b2a4b') delete state.settings.sizeRowTx;
             if (!Array.isArray(state.incomings)) state.incomings = [];
             return true;
           }
@@ -2222,7 +2226,7 @@
 
     const DCOLS = [
       { k: 'code', t: 'کد طرح', d: true, cell: i => esc(i.code) },
-      { k: 'name', t: 'نام طرح', d: true, right: true, cell: i => esc(i.name) + ' <span style="font-size:9px;color:#666">' + esc(i.brand === 'سایر' ? (i.description || '') : i.brand) + '</span>' },
+      { k: 'name', t: 'نام طرح', d: true, always: true, right: true, cell: i => esc(i.name) + ' <span style="font-size:9px;color:#666">' + esc(i.brand === 'سایر' ? (i.description || '') : i.brand) + '</span>' },
       { k: 'size', t: 'سایز', d: true, cell: i => esc(i.size) },
       { k: 'grade', t: 'گرید', d: true, cell: i => esc(gradeShow(i.grade)) },
       { k: 'loc', t: 'جایگاه', d: false, cell: i => esc(i.location || '') },
@@ -2235,7 +2239,7 @@
     ];
     const RCOLS = [
       { k: 'code', t: 'کد', d: true, cell: it => esc(it.code || '') },
-      { k: 'name', t: 'نام طرح', d: true, right: true, cell: it => esc(it.name || '') },
+      { k: 'name', t: 'نام طرح', d: true, always: true, right: true, cell: it => esc(it.name || '') },
       { k: 'size', t: 'سایز', d: true, cell: it => esc(it.size || '') },
       { k: 'grade', t: 'گرید', d: true, cell: it => esc(gradeShow(it.grade)) },
       { k: 'loc', t: 'جایگاه', d: false, cell: it => esc(it.location || '') },
@@ -2357,7 +2361,7 @@
           items.forEach(i => {
             n++;
             const cartons = calcCartons(i.stockM2, i.m2PerCarton);
-            const min = state.settings.minStock[i.size] || 0;
+            const min = (state.settings.minStock || {})[i.size] || 0;
             const isLow = min > 0 && i.stockM2 <= min;
             const { pallets, remain } = calcPallets(cartons, i.cartonsPerPallet);
             let packStr = faNum(cartons, 0) + 'K';
@@ -3280,7 +3284,7 @@
       document.getElementById('setPreparer').value = state.settings.preparer || 'Parsaeian';
       const sp = document.getElementById('setPhone'); if (sp) sp.value = state.settings.phone || '';
       const sf = document.getElementById('setFooter'); if (sf) sf.value = state.settings.receiptFooter || DEFAULT_SETTINGS.receiptFooter || '';
-      { const nc = document.getElementById('setNoteColor'); if (nc) nc.value = state.settings.noteColor || '#111111'; const nb = document.getElementById('setNoteBg'); if (nb) nb.value = state.settings.noteBg || '#ffffff'; const ll = document.getElementById('setLetterLatin'); if (ll) ll.value = state.settings.letterLatin || ''; const ls = document.getElementById('setLetterSub'); if (ls) ls.value = state.settings.letterSub || ''; const dd = document.getElementById('setDailyDate'); if (dd) dd.value = state.settings.dailyDate || ''; const dt = document.getElementById('setDailyTime'); if (dt) dt.value = state.settings.dailyTime || ''; const dc = document.getElementById('setDailyColor'); if (dc) dc.value = state.settings.dailyColor || '#e9c46a'; const lcol = document.getElementById('setLetterColor'); if (lcol) lcol.value = state.settings.letterColor || '#e9c46a'; const srb = document.getElementById('setSizeRowBg'); if (srb) srb.value = state.settings.sizeRowBg || '#dbeafe'; const srt = document.getElementById('setSizeRowTx'); if (srt) srt.value = state.settings.sizeRowTx || '#1b2a4b'; const lbg = document.getElementById('setLetterBg'); if (lbg) lbg.value = state.settings.letterBg || '#1b2a4b'; const ahc = document.getElementById('setAppHeaderColor'); if (ahc) ahc.value = state.settings.appHeaderColor || '#ffffff'; const ds = state.settings.dStyle || {}; const db = document.getElementById('setDBandText'); if (db) db.value = ds.bandText || '#ffffff'; const dsb = document.getElementById('setDSizeBg'); if (dsb) dsb.value = ds.sizeBg || '#fbf1ef'; const dst = document.getElementById('setDSizeText'); if (dst) dst.value = ds.sizeText || '#5c1a10'; const dh = document.getElementById('setDHeadText'); if (dh) dh.value = ds.headText || '#ffffff'; const pp = document.getElementById('setPrepPos'); if (pp) pp.value = state.settings.prepPos || 'top'; const fo = document.getElementById('setFootOpacity'); if (fo) fo.value = state.settings.footOpacity || 15; const fsz = document.getElementById('setFootSize'); if (fsz) fsz.value = state.settings.footSize || 55; storageInfo(); const so = document.getElementById('setSizeOrder'); if (so) so.value = (state.settings.sizeOrder || []).join('\n'); renderColsBoxes(); { const f = state.settings.font || {}; const ff = document.getElementById('setFontFamily'); if (ff) ff.value = f.family || 'Vazirmatn, Tahoma, sans-serif'; const fs = document.getElementById('setFontSize'); if (fs) fs.value = f.size || 14; const fc = document.getElementById('setFontColor'); if (fc) fc.value = f.color || '#111111'; } }
+      { const nc = document.getElementById('setNoteColor'); if (nc) nc.value = state.settings.noteColor || '#111111'; const nb = document.getElementById('setNoteBg'); if (nb) nb.value = state.settings.noteBg || '#ffffff'; const ll = document.getElementById('setLetterLatin'); if (ll) ll.value = state.settings.letterLatin || ''; const ls = document.getElementById('setLetterSub'); if (ls) ls.value = state.settings.letterSub || ''; const dd = document.getElementById('setDailyDate'); if (dd) dd.value = state.settings.dailyDate || ''; const dt = document.getElementById('setDailyTime'); if (dt) dt.value = state.settings.dailyTime || ''; const dc = document.getElementById('setDailyColor'); if (dc) dc.value = state.settings.dailyColor || '#e9c46a'; const lcol = document.getElementById('setLetterColor'); if (lcol) lcol.value = state.settings.letterColor || '#e9c46a'; const srb = document.getElementById('setSizeRowBg'); if (srb) srb.value = state.settings.sizeRowBg || '#f3dcd6'; const srt = document.getElementById('setSizeRowTx'); if (srt) srt.value = state.settings.sizeRowTx || '#5c1a10'; const lbg = document.getElementById('setLetterBg'); if (lbg) lbg.value = state.settings.letterBg || '#7d2519'; const ahc = document.getElementById('setAppHeaderColor'); if (ahc) ahc.value = state.settings.appHeaderColor || '#ffffff'; const ds = state.settings.dStyle || {}; const db = document.getElementById('setDBandText'); if (db) db.value = ds.bandText || '#ffffff'; const dsb = document.getElementById('setDSizeBg'); if (dsb) dsb.value = ds.sizeBg || '#fbf1ef'; const dst = document.getElementById('setDSizeText'); if (dst) dst.value = ds.sizeText || '#5c1a10'; const dh = document.getElementById('setDHeadText'); if (dh) dh.value = ds.headText || '#ffffff'; const pp = document.getElementById('setPrepPos'); if (pp) pp.value = state.settings.prepPos || 'top'; const fo = document.getElementById('setFootOpacity'); if (fo) fo.value = state.settings.footOpacity || 15; const fsz = document.getElementById('setFootSize'); if (fsz) fsz.value = state.settings.footSize || 55; storageInfo(); const so = document.getElementById('setSizeOrder'); if (so) so.value = (state.settings.sizeOrder || []).join('\n'); renderColsBoxes(); { const f = state.settings.font || {}; const ff = document.getElementById('setFontFamily'); if (ff) ff.value = f.family || 'Vazirmatn, Tahoma, sans-serif'; const fs = document.getElementById('setFontSize'); if (fs) fs.value = f.size || 14; const fc = document.getElementById('setFontColor'); if (fc) fc.value = f.color || '#111111'; } }
       document.getElementById('setSms').value = state.settings.smsTemplate || DEFAULT_SETTINGS.smsTemplate;
       renderMinStock();
     }
@@ -3413,6 +3417,10 @@
           }
           state = parsed;
           if (!state.settings) state.settings = { ...DEFAULT_SETTINGS };
+    if (!state.settings.minStock) state.settings.minStock = {};
+    if (state.settings.letterBg === '#1b2a4b') state.settings.letterBg = '#7d2519';
+    if (state.settings.sizeRowBg === '#dbeafe') delete state.settings.sizeRowBg;
+    if (state.settings.sizeRowTx === '#1b2a4b') delete state.settings.sizeRowTx;
           saveState();
           renderAll();
           loadSettingsToForm();
