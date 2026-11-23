@@ -3509,8 +3509,15 @@
     }
     function cloudInit(){
       const cfg=window.WAREHOUSE_CLOUD_CONFIG||{};
-      if(!window.supabase || !cfg.url || !cfg.anonKey){
-        cloudStatus('اتصال هنوز تنظیم نشده است؛ آدرس پروژه و کلید عمومی Publishable باید در cloud-config.js قرار بگیرد.',true);
+      if(!window.supabase){
+        /* offline or cloud library not loaded: keep the app usable on this phone */
+        document.body.classList.add('manager-authenticated');
+        cloudStatus('بدون اینترنت یا بدون اتصال ابری: برنامه به‌صورت محلی باز شد.',true);
+        return false;
+      }
+      if(!cfg.url || !cfg.anonKey || /PASTE_/.test(cfg.anonKey)){
+        document.body.classList.add('manager-authenticated');
+        cloudStatus('اتصال ابری تنظیم نشده است؛ برنامه به‌صورت محلی کار می‌کند.',true);
         return false;
       }
       cloudClient=window.supabase.createClient(cfg.url,cfg.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
@@ -3649,6 +3656,11 @@
         grade:String(item.grade||''),
         stock_m2:Number(item.stockM2||0),
         brand:String(item.brand||''),
+        m2_per_carton:Number(item.m2PerCarton||0),
+        cartons_per_pallet:Number(item.cartonsPerPallet||0),
+        weight_per_carton:Number(item.weightPerCarton||0),
+        location:String(item.location||''),
+        description:String(item.description||''),
         updated_at:new Date().toISOString()
       }));
       const {error:publishError}=await cloudClient.rpc('publish_inventory',{p_warehouse_id:CLOUD_WAREHOUSE_ID,p_rows:inventoryRows});
