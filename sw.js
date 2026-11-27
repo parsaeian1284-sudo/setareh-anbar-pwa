@@ -1,82 +1,48 @@
-// Offline-first service worker for Setareh warehouse PWA.
-const CACHE = 'setareh-install-fix-2';
-const APP_SHELL = [
-  './',
-  './index.html',
-  './manifest.json',
-  './cloud-config.js',
-  './icon-192.png',
-  './icon-512.png'
+const CACHE = 'setareh-anbar-v2.2';
+const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+// کتابخانه‌های بیرونی: یک بار (با اینترنت) ذخیره می‌شوند تا برنامه آفلاین هم اکسل/PDF/سینک را داشته باشد
+const LIBS = [
+  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js',
+  'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
 ];
 
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting())
+self.addEventListener('install', (e) => {
+  e.waitUntil(
+    caches.open(CACHE).then((c) =>
+      Promise.all([
+        c.addAll(FILES),
+        ...LIBS.map((u) => fetch(new Request(u, { mode: 'no-cors' })).then((r) => c.put(u, r)).catch(() => {}))
+      ])
+    ).then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
+self.addEventListener('activate', (e) => {
+  e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(
-        keys.filter((key) => key.startsWith('setareh-') && key !== CACHE)
-          .map((key) => caches.delete(key))
-      ))
+      .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
-self.addEventListener('fetch', (event) => {
-  const request = event.request;
-  if (request.method !== 'GET') return;
-
-  const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return;
-
-  const isShell = APP_SHELL.some(
-    (path) => new URL(path, self.location.href).pathname === url.pathname
-  );
-
-  if (isShell) {
-    event.respondWith((async () => {
-      const cache = await caches.open(CACHE);
-      const cached = await cache.match(request) || await cache.match('./index.html');
-      const update = fetch(request).then((response) => {
-        if (response && response.ok) cache.put(request, response.clone());
-        return response;
-      }).catch(() => null);
-
-      if (cached) {
-        event.waitUntil(update);
-        return cached;
-      }
-
-      const fresh = await update;
-      return fresh || new Response(
-        'برنامه در حالت آفلاین در دسترس نیست. یک بار با اینترنت بازش کنید.',
-        { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
-      );
-    })());
+self.addEventListener('fetch', (e) => {
+  if (e.request.method !== 'GET') return;
+  const url = new URL(e.request.url);
+  if (LIBS.includes(e.request.url)) {
+    e.respondWith(caches.match(e.request).then((m) => m || fetch(e.request).then((r) => { caches.open(CACHE).then((c) => c.put(e.request, r.clone())); return r; })));
     return;
   }
-
-  event.respondWith(
-    fetch(request).then((response) => {
-      if (response && response.ok) {
-        const copy = response.clone();
-        event.waitUntil(caches.open(CACHE).then((cache) => cache.put(request, copy)));
-      }
-      return response;
-    }).catch(async () => {
-      const cached = await caches.match(request);
-      if (cached) return cached;
-      if (request.mode === 'navigate') {
-        return (await caches.match('./index.html')) ||
-          new Response('آفلاین هستید.', { status: 503 });
-      }
-      return new Response('', { status: 504 });
-    })
+  if (url.origin !== self.location.origin) return;
+  e.respondWith(
+    fetch(e.request)
+      .then((res) => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
+        return res;
+      })
+      .catch(() => caches.match(e.request).then((m) => m || (e.request.mode === 'navigate' ? caches.match('./index.html') : new Response('', { status: 504 }))))
   );
 });
